@@ -31,8 +31,6 @@ services:
 
   test-volumes:
     image: alpine:latest
-    profiles:
-      - test
     command:
       - sh
       - -c
@@ -42,7 +40,6 @@ services:
         printf '%s\n' 'db volume ready' > /seed/db/README.txt
         printf '%s\n' 'cache volume ready' > /seed/cache/README.txt
         printf '%s\n' 'logs volume ready' > /seed/logs/README.txt
-        sleep infinity
     volumes:
       - test-db-data:/seed/db
       - test-cache-data:/seed/cache
