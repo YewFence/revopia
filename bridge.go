@@ -127,6 +127,11 @@ func prepare(ctx context.Context, api dockerAPI, cfg bridgeConfig, out io.Writer
 		fmt.Fprintf(out, "%s %s -> %s\n", action, spec.VolumeName, visiblePath(cfg, spec))
 	}
 
+	if target, ok := kopiaSnapshotPathForSource(cfg, specs, os.Getenv("KOPIA_SOURCE_PATH")); ok {
+		logger.Printf("prepare_kopia_snapshot_path source=%q target=%q", os.Getenv("KOPIA_SOURCE_PATH"), target)
+		fmt.Fprintf(out, "KOPIA_SNAPSHOT_PATH=%s\n", target)
+	}
+
 	if len(errs) == 0 {
 		logger.Printf("prepare_done result=ok")
 	} else {
@@ -683,6 +688,26 @@ func inspectVisiblePath(target string) visiblePathStatus {
 
 func visiblePath(cfg bridgeConfig, spec volumeSpec) string {
 	return filepath.Join(cfg.VisibleRoot, spec.FriendlyName)
+}
+
+func kopiaSnapshotPathForSource(cfg bridgeConfig, specs []volumeSpec, sourcePath string) (string, bool) {
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return "", false
+	}
+
+	cleanSource := filepath.Clean(sourcePath)
+	for _, spec := range specs {
+		target := visiblePath(cfg, spec)
+		if filepath.Clean(target) == cleanSource {
+			return target, true
+		}
+		rawTarget := filepath.Join(cfg.VisibleRoot, sanitizePathName(spec.VolumeName))
+		if filepath.Clean(rawTarget) == cleanSource {
+			return target, true
+		}
+	}
+	return "", false
 }
 
 func isMountPoint(target string) (bool, error) {

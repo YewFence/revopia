@@ -135,6 +135,38 @@ func TestHelperMatches(t *testing.T) {
 	}
 }
 
+func TestKopiaSnapshotPathForSource(t *testing.T) {
+	cfg := bridgeConfig{VisibleRoot: "/volumes"}
+	specs := []volumeSpec{
+		{VolumeName: "db-data", FriendlyName: "database"},
+		{VolumeName: "cache-data", FriendlyName: "cache"},
+	}
+
+	got, ok := kopiaSnapshotPathForSource(cfg, specs, "/volumes/database")
+	if !ok {
+		t.Fatal("expected single volume source to match")
+	}
+	if got != "/volumes/database" {
+		t.Fatalf("snapshot path = %q, want /volumes/database", got)
+	}
+
+	got, ok = kopiaSnapshotPathForSource(cfg, specs, "/volumes/db-data")
+	if !ok {
+		t.Fatal("expected raw volume source to match")
+	}
+	if got != "/volumes/database" {
+		t.Fatalf("snapshot path for raw volume = %q, want /volumes/database", got)
+	}
+
+	if _, ok := kopiaSnapshotPathForSource(cfg, specs, "/volumes"); ok {
+		t.Fatal("did not expect visible root source to match a single volume")
+	}
+
+	if _, ok := kopiaSnapshotPathForSource(cfg, specs, "/volumes/missing"); ok {
+		t.Fatal("did not expect unknown source to match")
+	}
+}
+
 func TestIsManagedHelperSummary(t *testing.T) {
 	summary := container.Summary{
 		Labels: map[string]string{
