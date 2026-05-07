@@ -7,13 +7,16 @@ services:
     environment:
       KOPIA_PASSWORD: kopia
       USER: kopia
+      KOPIA_VOLUME_BRIDGE_LOG_FILE: /app/logs/volume-bridge.log
+      KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT: /volumes
     volumes:
       - kopia-config:/app/config
       - kopia-cache:/app/cache
-      - kopia-logs:/app/logs
+      - ./logs:/app/logs
       - kopia-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
       - /mnt/volumes-backup:/volumes:rshared
+      - ./bin/volume-backup:/bin/volume-backup
     stdin_open: true
     tty: true
     command:
@@ -25,10 +28,37 @@ services:
       - --server-username=kopia
       - --server-password=kopia
 
+  test-volumes:
+    image: alpine:latest
+    profiles:
+      - test
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /seed/db /seed/cache /seed/logs
+        printf '%s\n' 'db volume ready' > /seed/db/README.txt
+        printf '%s\n' 'cache volume ready' > /seed/cache/README.txt
+        printf '%s\n' 'logs volume ready' > /seed/logs/README.txt
+        sleep infinity
+    volumes:
+      - test-db-data:/seed/db
+      - test-cache-data:/seed/cache
+      - test-logs-data:/seed/logs
+
 volumes:
-  rustfs-data:
-  rustfs-logs:
   kopia-config:
   kopia-cache:
-  kopia-logs:
   kopia-data:
+  test-db-data:
+    labels:
+      backup.enable: "true"
+      backup.name: "db-primary"
+  test-cache-data:
+    labels:
+      backup.enable: "true"
+      backup.name: "cache tmp"
+  test-logs-data:
+    labels:
+      backup.enable: "true"
