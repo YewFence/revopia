@@ -1,3 +1,54 @@
 [tools]
-go = "latest"
-kopia = "latest"
+# https://go.dev/
+go = "1.25"
+# https://github.com/azat-io/actions-up
+"npm:actions-up" = "1"
+# https://github.com/paulhatch/semantic-version
+"npm:@semanticversion/cli" = "latest"
+# https://golangci-lint.run/
+golangci-lint = "2"
+
+[tasks.tidy]
+description = "整理 Go 模块依赖"
+run = "go mod tidy"
+
+[tasks.update]
+description = "更新 Go 第三方库并整理模块依赖"
+run = "go get -u ./... && go mod tidy"
+
+[tasks.test]
+description = "运行 Go 测试"
+run = "go test -v ./..."
+
+[tasks.fmt]
+description = "检查 Go 代码格式"
+raw = true
+run = "golangci-lint fmt -E gofmt --diff"
+
+[tasks.vet]
+description = "运行 Go 静态检查"
+raw = true
+run = "go vet ./..."
+
+[tasks.lint]
+description = "运行 Go lint 检查"
+raw = true
+run = "golangci-lint run"
+
+[tasks.build]
+description = "构建 CLI 二进制"
+raw = true
+run = "go build -trimpath -ldflags='-s -w -X main.version=dev' -o bin/volume-backup ."
+
+[tasks.check]
+description = "运行 Go 格式、静态检查、构建和 lint"
+run = [
+  { task = "fmt" },
+  { task = "vet" },
+  { task = "build" },
+  { task = "lint" },
+]
+
+[tasks.run]
+description = "运行 CLI"
+run = "go run ."

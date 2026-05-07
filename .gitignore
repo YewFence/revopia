@@ -1,1 +1,12 @@
-volume-backup
+/dist/
+/bin/
+/coverage.out
+*.test
+
+.codex
+.claude
+
+.env
+.env.local
+
+mise.local.toml
