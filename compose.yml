@@ -1,0 +1,34 @@
+services:
+  kopia:
+    image: kopia/kopia:unstable
+    hostname: kopia-test
+    ports:
+      - "51515:51515"
+    environment:
+      KOPIA_PASSWORD: kopia
+      USER: kopia
+    volumes:
+      - kopia-config:/app/config
+      - kopia-cache:/app/cache
+      - kopia-logs:/app/logs
+      - kopia-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/volumes-backup:/volumes:rshared
+    stdin_open: true
+    tty: true
+    command:
+      - server
+      - start
+      - --disable-csrf-token-checks
+      - --insecure
+      - --address=0.0.0.0:51515
+      - --server-username=kopia
+      - --server-password=kopia
+
+volumes:
+  rustfs-data:
+  rustfs-logs:
+  kopia-config:
+  kopia-cache:
+  kopia-logs:
+  kopia-data:
