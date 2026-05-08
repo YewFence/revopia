@@ -33,6 +33,11 @@ func defaultRestoreSessionID(sourceVolume, targetVolume string) string {
 	return sanitizePathName(sourceVolume) + "-to-" + sanitizePathName(targetVolume) + "-" + stamp
 }
 
+func defaultRestoreTargetVolume(sourceVolume string) string {
+	stamp := time.Now().UTC().Format("20060102-150405")
+	return strings.TrimSpace(sourceVolume) + "-restore-" + stamp
+}
+
 func friendlyNameForVolume(vol volume.Volume) (string, error) {
 	if name := sanitizePathName(vol.Labels[labelBackupName]); name != "" {
 		return name, nil

@@ -16,6 +16,7 @@ import (
 )
 
 func Restore(ctx context.Context, api DockerAPI, cfg Config, opts RestoreOptions, out io.Writer, logger Logger) error {
+	opts = restoreOptionsWithDefaults(opts)
 	if err := validateRestoreInputs(cfg, opts); err != nil {
 		return err
 	}
@@ -81,6 +82,15 @@ func Restore(ctx context.Context, api DockerAPI, cfg Config, opts RestoreOptions
 	return nil
 }
 
+func restoreOptionsWithDefaults(opts RestoreOptions) RestoreOptions {
+	opts.SourceVolume = strings.TrimSpace(opts.SourceVolume)
+	opts.TargetVolume = strings.TrimSpace(opts.TargetVolume)
+	if opts.TargetVolume == "" && opts.SourceVolume != "" {
+		opts.TargetVolume = defaultRestoreTargetVolume(opts.SourceVolume)
+	}
+	return opts
+}
+
 func validateRestoreInputs(cfg Config, opts RestoreOptions) error {
 	if strings.TrimSpace(cfg.BridgeSource) == "" {
 		return restoreBridgeSourceMissingError()
@@ -93,9 +103,6 @@ func validateRestoreInputs(cfg Config, opts RestoreOptions) error {
 	}
 	if strings.TrimSpace(opts.SourceVolume) == "" {
 		return restoreSourceVolumeMissingError()
-	}
-	if strings.TrimSpace(opts.TargetVolume) == "" {
-		return restoreTargetVolumeMissingError()
 	}
 	if opts.SourceVolume == opts.TargetVolume && !opts.AllowSourceTarget {
 		return restoreSameSourceTargetError(opts.SourceVolume)

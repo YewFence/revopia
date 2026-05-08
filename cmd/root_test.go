@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
@@ -9,6 +10,17 @@ import (
 func executeCommand(command string, args ...string) (string, error) {
 	buffer := new(bytes.Buffer)
 	cmd := newRootCommand()
+	cmd.SetOut(buffer)
+	cmd.SetErr(buffer)
+	cmd.SetArgs(append([]string{command}, args...))
+	err := cmd.Execute()
+	return buffer.String(), err
+}
+
+func executeCommandWithInput(input string, command string, args ...string) (string, error) {
+	buffer := new(bytes.Buffer)
+	cmd := newRootCommand()
+	cmd.SetIn(strings.NewReader(input))
 	cmd.SetOut(buffer)
 	cmd.SetErr(buffer)
 	cmd.SetArgs(append([]string{command}, args...))
@@ -65,7 +77,7 @@ func TestRestoreMissingSourceVolumeReturnsHints(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing source volume error")
 	}
-	if !strings.Contains(err.Error(), "source volume 不能为空") {
+	if !strings.Contains(err.Error(), "restore 需要一个 source-volume 位置参数") {
 		t.Fatalf("error = %q, want missing source volume", err)
 	}
 
@@ -75,18 +87,23 @@ func TestRestoreMissingSourceVolumeReturnsHints(t *testing.T) {
 	}
 }
 
-func TestRestoreCleanupMissingSessionReturnsHints(t *testing.T) {
-	_, err := executeCommand("restore-cleanup", "--log-file", "")
-	if err == nil {
-		t.Fatal("expected missing session error")
+func TestRestoreCleanupCancelledWithoutDocker(t *testing.T) {
+	got, err := executeCommandWithInput("no\n", "restore-cleanup", "--log-file", "")
+	if err != nil {
+		t.Fatalf("execute restore-cleanup: %v", err)
 	}
-	if !strings.Contains(err.Error(), "session id 不能为空") {
-		t.Fatalf("error = %q, want missing session", err)
+	if !strings.Contains(got, "已取消") {
+		t.Fatalf("output = %q, want cancelled message", got)
 	}
+}
 
-	hints := strings.Join(hintsForError(err), "\n")
-	if !strings.Contains(hints, "RESTORE_SESSION_ID") {
-		t.Fatalf("hints = %q, want session id hint", hints)
+func TestRestoreCleanupRequiresConfirmInput(t *testing.T) {
+	_, err := executeCommandWithInput("", "restore-cleanup", "--log-file", "")
+	if err == nil {
+		t.Fatal("expected confirm input error")
+	}
+	if !strings.Contains(err.Error(), "读取确认输入失败") && !strings.Contains(err.Error(), io.EOF.Error()) {
+		t.Fatalf("error = %q, want confirm input error", err)
 	}
 }
 

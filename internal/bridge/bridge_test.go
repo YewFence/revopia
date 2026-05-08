@@ -221,6 +221,39 @@ func TestValidateRestoreInputsRejectsUnsafeDefaults(t *testing.T) {
 	}
 }
 
+func TestRestoreOptionsWithDefaultsGeneratesTargetVolume(t *testing.T) {
+	opts := restoreOptionsWithDefaults(RestoreOptions{SourceVolume: "app data"})
+	if !strings.HasPrefix(opts.TargetVolume, "app data-restore-") {
+		t.Fatalf("target volume = %q, want source based restore name", opts.TargetVolume)
+	}
+	if len(strings.TrimPrefix(opts.TargetVolume, "app data-restore-")) != len("20060102-150405") {
+		t.Fatalf("target volume = %q, want timestamp suffix", opts.TargetVolume)
+	}
+}
+
+func TestIsManagedRestoreHelperSummaryAcceptsAllSessions(t *testing.T) {
+	summary := container.Summary{
+		Labels: map[string]string{
+			labelProject:      labelTrue,
+			labelMode:         modeRestore,
+			labelSession:      "restore-session",
+			labelSourceVolume: "db-data",
+			labelTargetVolume: "db-restore",
+			labelFriendlyName: "database",
+		},
+	}
+
+	if !isManagedRestoreHelperSummary(summary, "") {
+		t.Fatal("expected restore helper from any session to be managed")
+	}
+	if !isManagedRestoreHelperSummary(summary, "restore-session") {
+		t.Fatal("expected matching session restore helper to be managed")
+	}
+	if isManagedRestoreHelperSummary(summary, "other-session") {
+		t.Fatal("expected different session restore helper to be skipped")
+	}
+}
+
 func TestKopiaSnapshotPathForSource(t *testing.T) {
 	cfg := Config{VisibleRoot: "/volumes"}
 	specs := []volumeSpec{
