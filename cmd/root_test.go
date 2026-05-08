@@ -60,6 +60,36 @@ func TestCommandRejectsExtraArgs(t *testing.T) {
 	}
 }
 
+func TestRestoreMissingSourceVolumeReturnsHints(t *testing.T) {
+	_, err := executeCommand("restore", "--log-file", "")
+	if err == nil {
+		t.Fatal("expected missing source volume error")
+	}
+	if !strings.Contains(err.Error(), "source volume 不能为空") {
+		t.Fatalf("error = %q, want missing source volume", err)
+	}
+
+	hints := strings.Join(hintsForError(err), "\n")
+	if !strings.Contains(hints, "docker volume ls") {
+		t.Fatalf("hints = %q, want docker volume ls hint", hints)
+	}
+}
+
+func TestRestoreCleanupMissingSessionReturnsHints(t *testing.T) {
+	_, err := executeCommand("restore-cleanup", "--log-file", "")
+	if err == nil {
+		t.Fatal("expected missing session error")
+	}
+	if !strings.Contains(err.Error(), "session id 不能为空") {
+		t.Fatalf("error = %q, want missing session", err)
+	}
+
+	hints := strings.Join(hintsForError(err), "\n")
+	if !strings.Contains(hints, "RESTORE_SESSION_ID") {
+		t.Fatalf("hints = %q, want session id hint", hints)
+	}
+}
+
 func TestCompletionCommand(t *testing.T) {
 	buffer := new(bytes.Buffer)
 	cmd := newRootCommand()

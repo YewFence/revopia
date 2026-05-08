@@ -27,32 +27,49 @@ const (
 	labelBackupEnable = "backup.enable"
 	labelBackupName   = "backup.name"
 
-	labelProject      = "kopia.volume-bridge"
-	labelVolume       = "kopia.volume-bridge.volume"
-	labelFriendlyName = "kopia.volume-bridge.name"
+	labelProject       = "kopia.volume-bridge"
+	labelVolume        = "kopia.volume-bridge.volume"
+	labelFriendlyName  = "kopia.volume-bridge.name"
+	labelMode          = "kopia.volume-bridge.mode"
+	labelSession       = "kopia.volume-bridge.session"
+	labelSourceVolume  = "kopia.volume-bridge.source-volume"
+	labelTargetVolume  = "kopia.volume-bridge.target-volume"
+	labelCreatedAt     = "kopia.volume-bridge.created-at"
+	labelCreatedBy     = "kopia.volume-bridge.created-by"
+	labelRestoreTarget = "kopia.volume-bridge.restore-target"
 
 	labelTrue = "true"
 
-	helperNamePrefix = "kopia-volume-bridge-"
-	helperTargetRoot = "/bridge"
+	modeBackup  = "backup"
+	modeRestore = "restore"
+
+	helperNamePrefix        = "kopia-volume-bridge-"
+	restoreHelperNamePrefix = "kopia-volume-restore-bridge-"
+	helperTargetRoot        = "/bridge"
+	restoreTargetSubdir     = "restore"
 )
 
 var helperCommand = []string{"sleep", "infinity"}
+var emptyCheckCommand = []string{"sh", "-c", "set -eu; test -d /target; if find /target -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then exit 1; fi"}
 
 type dockerAPI interface {
 	VolumeList(context.Context, dockerclient.VolumeListOptions) (dockerclient.VolumeListResult, error)
+	VolumeInspect(context.Context, string, dockerclient.VolumeInspectOptions) (dockerclient.VolumeInspectResult, error)
+	VolumeCreate(context.Context, dockerclient.VolumeCreateOptions) (dockerclient.VolumeCreateResult, error)
 	ContainerList(context.Context, dockerclient.ContainerListOptions) (dockerclient.ContainerListResult, error)
 	ContainerInspect(context.Context, string, dockerclient.ContainerInspectOptions) (dockerclient.ContainerInspectResult, error)
 	ContainerCreate(context.Context, dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error)
 	ContainerStart(context.Context, string, dockerclient.ContainerStartOptions) (dockerclient.ContainerStartResult, error)
+	ContainerWait(context.Context, string, dockerclient.ContainerWaitOptions) dockerclient.ContainerWaitResult
 	ContainerRemove(context.Context, string, dockerclient.ContainerRemoveOptions) (dockerclient.ContainerRemoveResult, error)
 }
 
 type bridgeConfig struct {
-	BridgeSource  string
-	VisibleRoot   string
-	HelperImage   string
-	VerifyTimeout time.Duration
+	BridgeSource       string
+	VisibleRoot        string
+	RestoreVisibleRoot string
+	HelperImage        string
+	VerifyTimeout      time.Duration
 }
 
 type volumeSpec struct {
@@ -60,12 +77,33 @@ type volumeSpec struct {
 	FriendlyName string
 }
 
+type restoreOptions struct {
+	SourceVolume        string
+	TargetVolume        string
+	SourceDirectoryID   string
+	SnapshotTime        string
+	SessionID           string
+	AllowSourceTarget   bool
+	AllowNonEmptyTarget bool
+}
+
+type restoreSession struct {
+	SourceVolume  string
+	TargetVolume  string
+	FriendlyName  string
+	SessionID     string
+	TargetPath    string
+	TargetCreated bool
+	HelperAction  string
+}
+
 func defaultBridgeConfig() bridgeConfig {
 	return bridgeConfig{
-		BridgeSource:  getenvDefault("KOPIA_VOLUME_BRIDGE_SOURCE", "/mnt/volumes-backup"),
-		VisibleRoot:   getenvDefault("KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT", "/volumes"),
-		HelperImage:   getenvDefault("KOPIA_VOLUME_BRIDGE_HELPER_IMAGE", "alpine"),
-		VerifyTimeout: defaultVerifyTimeout,
+		BridgeSource:       getenvDefault("KOPIA_VOLUME_BRIDGE_SOURCE", "/mnt/volumes-backup"),
+		VisibleRoot:        getenvDefault("KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT", "/volumes"),
+		RestoreVisibleRoot: getenvDefault("KOPIA_VOLUME_BRIDGE_RESTORE_ROOT", "/restore"),
+		HelperImage:        getenvDefault("KOPIA_VOLUME_BRIDGE_HELPER_IMAGE", "alpine"),
+		VerifyTimeout:      defaultVerifyTimeout,
 	}
 }
 
@@ -142,7 +180,7 @@ func prepare(ctx context.Context, api dockerAPI, cfg bridgeConfig, out io.Writer
 
 func cleanup(ctx context.Context, api dockerAPI, out io.Writer, logger eventLogger) error {
 	logger.Printf("cleanup_start")
-	helpers, err := listProjectHelpers(ctx, api)
+	helpers, err := listBackupHelpers(ctx, api)
 	if err != nil {
 		logger.Printf("cleanup_list_error error=%q", err)
 		return err
@@ -169,6 +207,476 @@ func cleanup(ctx context.Context, api dockerAPI, out io.Writer, logger eventLogg
 	fmt.Fprintf(out, "已清理 %d 个 helper 容器\n", removed)
 	logger.Printf("cleanup_done removed=%d errors=%d", removed, len(errs))
 	return errors.Join(errs...)
+}
+
+func restore(ctx context.Context, api dockerAPI, cfg bridgeConfig, opts restoreOptions, out io.Writer, logger eventLogger) error {
+	if err := validateRestoreInputs(cfg, opts); err != nil {
+		return err
+	}
+
+	logger.Printf("restore_start source=%q target=%q session=%q bridge_source=%q restore_root=%q helper_image=%q allow_same=%t allow_non_empty=%t", opts.SourceVolume, opts.TargetVolume, opts.SessionID, cfg.BridgeSource, cfg.RestoreVisibleRoot, cfg.HelperImage, opts.AllowSourceTarget, opts.AllowNonEmptyTarget)
+
+	source, err := api.VolumeInspect(ctx, opts.SourceVolume, dockerclient.VolumeInspectOptions{})
+	if err != nil {
+		logger.Printf("restore_source_inspect_error source=%q error=%q", opts.SourceVolume, err)
+		if cerrdefs.IsNotFound(err) {
+			return restoreSourceVolumeNotFoundError(opts.SourceVolume)
+		}
+		return restoreSourceVolumeInspectError(opts.SourceVolume, err)
+	}
+
+	friendlyName, err := friendlyNameForVolume(source.Volume)
+	if err != nil {
+		logger.Printf("restore_source_friendly_error source=%q error=%q", opts.SourceVolume, err)
+		return restoreSourceFriendlyNameError(opts.SourceVolume, err)
+	}
+	sessionID := opts.SessionID
+	if sessionID == "" {
+		sessionID = defaultRestoreSessionID(opts.SourceVolume, opts.TargetVolume)
+	}
+	session := restoreSession{
+		SourceVolume: opts.SourceVolume,
+		TargetVolume: opts.TargetVolume,
+		FriendlyName: friendlyName,
+		SessionID:    sessionID,
+		TargetPath:   restoreVisiblePath(cfg, friendlyName),
+	}
+
+	target, created, err := ensureRestoreTargetVolume(ctx, api, opts, session, logger)
+	if err != nil {
+		return err
+	}
+	session.TargetCreated = created
+	logger.Printf("restore_target_ready target=%q created=%t labels=%q mountpoint=%q", target.Name, created, formatLabels(target.Labels), target.Mountpoint)
+
+	if !opts.AllowNonEmptyTarget {
+		if err := ensureVolumeEmpty(ctx, api, cfg, session, logger); err != nil {
+			return err
+		}
+	}
+
+	action, err := ensureRestoreHelper(ctx, api, cfg, session, logger)
+	if err != nil {
+		return err
+	}
+	session.HelperAction = action
+
+	status, err := waitForRestoreVisibleMount(ctx, cfg, session, logger)
+	if err != nil {
+		logger.Printf("restore_visible_error session=%q status=%s error=%q", session.SessionID, status.String(), err)
+		return restoreVisibleMountError(cfg, session, err)
+	}
+	logger.Printf("restore_visible_ok session=%q status=%s", session.SessionID, status.String())
+
+	printRestoreInstructions(out, cfg, opts, session)
+	logger.Printf("restore_done session=%q action=%q target_path=%q", session.SessionID, session.HelperAction, session.TargetPath)
+	return nil
+}
+
+func validateRestoreInputs(cfg bridgeConfig, opts restoreOptions) error {
+	if strings.TrimSpace(cfg.BridgeSource) == "" {
+		return restoreBridgeSourceMissingError()
+	}
+	if strings.TrimSpace(cfg.RestoreVisibleRoot) == "" {
+		return restoreRootMissingError()
+	}
+	if strings.TrimSpace(cfg.HelperImage) == "" {
+		return restoreHelperImageMissingError()
+	}
+	if strings.TrimSpace(opts.SourceVolume) == "" {
+		return restoreSourceVolumeMissingError()
+	}
+	if strings.TrimSpace(opts.TargetVolume) == "" {
+		return restoreTargetVolumeMissingError()
+	}
+	if opts.SourceVolume == opts.TargetVolume && !opts.AllowSourceTarget {
+		return restoreSameSourceTargetError(opts.SourceVolume)
+	}
+	if opts.SessionID != "" && sanitizePathName(opts.SessionID) != opts.SessionID {
+		return restoreUnsafeSessionIDError(opts)
+	}
+	if opts.SnapshotTime == "" {
+		return nil
+	}
+	if strings.ContainsAny(opts.SnapshotTime, "\x00\r\n") {
+		return restoreUnsafeSnapshotTimeError()
+	}
+	return nil
+}
+
+func ensureRestoreTargetVolume(ctx context.Context, api dockerAPI, opts restoreOptions, session restoreSession, logger eventLogger) (volume.Volume, bool, error) {
+	inspected, err := api.VolumeInspect(ctx, opts.TargetVolume, dockerclient.VolumeInspectOptions{})
+	if err == nil {
+		return inspected.Volume, false, nil
+	}
+	if !cerrdefs.IsNotFound(err) {
+		logger.Printf("restore_target_inspect_error target=%q error=%q", opts.TargetVolume, err)
+		return volume.Volume{}, false, restoreTargetVolumeInspectError(opts.TargetVolume, err)
+	}
+
+	labels := restoreTargetVolumeLabels(session)
+	logger.Printf("restore_target_create target=%q labels=%q", opts.TargetVolume, formatLabels(labels))
+	created, err := api.VolumeCreate(ctx, dockerclient.VolumeCreateOptions{
+		Name:   opts.TargetVolume,
+		Labels: labels,
+	})
+	if err != nil {
+		logger.Printf("restore_target_create_error target=%q error=%q", opts.TargetVolume, err)
+		return volume.Volume{}, false, restoreTargetVolumeCreateError(opts.TargetVolume, err)
+	}
+	return created.Volume, true, nil
+}
+
+func restoreTargetVolumeLabels(session restoreSession) map[string]string {
+	return map[string]string{
+		labelProject:       labelTrue,
+		labelMode:          modeRestore,
+		labelSession:       session.SessionID,
+		labelSourceVolume:  session.SourceVolume,
+		labelTargetVolume:  session.TargetVolume,
+		labelFriendlyName:  session.FriendlyName,
+		labelRestoreTarget: labelTrue,
+		labelCreatedAt:     time.Now().UTC().Format(time.RFC3339),
+		labelCreatedBy:     "volume-backup/" + appVersion,
+	}
+}
+
+func ensureVolumeEmpty(ctx context.Context, api dockerAPI, cfg bridgeConfig, session restoreSession, logger eventLogger) error {
+	options := emptyCheckContainerCreateOptions(cfg, session)
+	logger.Printf("restore_empty_check_create name=%q image=%q mounts=%q", options.Name, cfg.HelperImage, formatCreateMounts(options.HostConfig.Mounts))
+	created, err := api.ContainerCreate(ctx, options)
+	if err != nil {
+		logger.Printf("restore_empty_check_create_error target=%q error=%q", session.TargetVolume, err)
+		return restoreEmptyCheckCreateError(cfg, session.TargetVolume, err)
+	}
+	defer func() {
+		if err := removeContainer(ctx, api, created.ID); err != nil {
+			logger.Printf("restore_empty_check_remove_error id=%q error=%q", shortID(created.ID), err)
+		}
+	}()
+
+	wait := api.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNextExit})
+	if _, err := api.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
+		logger.Printf("restore_empty_check_start_error id=%q error=%q", shortID(created.ID), err)
+		return restoreEmptyCheckStartError(session.TargetVolume, err)
+	}
+
+	select {
+	case err := <-wait.Error:
+		if err != nil {
+			logger.Printf("restore_empty_check_wait_error id=%q error=%q", shortID(created.ID), err)
+			return restoreEmptyCheckWaitError(session.TargetVolume, err)
+		}
+	case result := <-wait.Result:
+		if result.StatusCode != 0 {
+			logger.Printf("restore_empty_check_non_empty id=%q status=%d", shortID(created.ID), result.StatusCode)
+			return restoreTargetVolumeNotEmptyError(session)
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	logger.Printf("restore_empty_check_ok target=%q", session.TargetVolume)
+	return nil
+}
+
+func emptyCheckContainerCreateOptions(cfg bridgeConfig, session restoreSession) dockerclient.ContainerCreateOptions {
+	name := "kopia-volume-restore-empty-check-" + hashString(session.SessionID+":"+session.TargetVolume)
+	return dockerclient.ContainerCreateOptions{
+		Name: name,
+		Config: &container.Config{
+			Image:           cfg.HelperImage,
+			Cmd:             slices.Clone(emptyCheckCommand),
+			NetworkDisabled: true,
+			Labels: map[string]string{
+				labelProject:      labelTrue,
+				labelMode:         modeRestore,
+				labelSession:      session.SessionID,
+				labelTargetVolume: session.TargetVolume,
+			},
+		},
+		HostConfig: &container.HostConfig{
+			AutoRemove:  false,
+			NetworkMode: container.NetworkMode("none"),
+			Mounts: []mount.Mount{
+				{
+					Type:   mount.TypeVolume,
+					Source: session.TargetVolume,
+					Target: "/target",
+				},
+			},
+		},
+	}
+}
+
+func ensureRestoreHelper(ctx context.Context, api dockerAPI, cfg bridgeConfig, session restoreSession, logger eventLogger) (string, error) {
+	expectedName := restoreHelperContainerName(session.SessionID)
+	helpers, err := listRestoreHelpersForSession(ctx, api, session.SessionID)
+	if err != nil {
+		return "", err
+	}
+	logger.Printf("restore_helper_list session=%q expected_name=%q count=%d", session.SessionID, expectedName, len(helpers))
+
+	recreated := false
+	for _, helper := range helpers {
+		logger.Printf("restore_helper_candidate id=%q names=%q state=%q labels=%q", shortID(helper.ID), strings.Join(helper.Names, ","), helper.State, formatLabels(helper.Labels))
+		if !containerHasName(helper, expectedName) {
+			logger.Printf("restore_helper_remove_unexpected_name id=%q expected_name=%q", shortID(helper.ID), expectedName)
+			if err := removeContainer(ctx, api, helper.ID); err != nil {
+				return "", err
+			}
+			recreated = true
+			continue
+		}
+
+		inspected, err := api.ContainerInspect(ctx, helper.ID, dockerclient.ContainerInspectOptions{})
+		if err != nil {
+			if cerrdefs.IsNotFound(err) {
+				logger.Printf("restore_helper_inspect_not_found id=%q", shortID(helper.ID))
+				recreated = true
+				continue
+			}
+			logger.Printf("restore_helper_inspect_error id=%q error=%q", shortID(helper.ID), err)
+			return "", err
+		}
+		logger.Printf("restore_helper_inspected %s", describeRestoreInspect(inspected.Container, cfg, session))
+
+		if restoreHelperMatches(inspected.Container, cfg, session) {
+			if inspected.Container.State != nil && inspected.Container.State.Running {
+				logger.Printf("restore_helper_reuse id=%q", shortID(helper.ID))
+				return "复用", nil
+			}
+			if _, err := api.ContainerStart(ctx, helper.ID, dockerclient.ContainerStartOptions{}); err != nil {
+				if !cerrdefs.IsNotFound(err) {
+					logger.Printf("restore_helper_start_error id=%q error=%q", shortID(helper.ID), err)
+					return "", err
+				}
+				logger.Printf("restore_helper_start_not_found id=%q", shortID(helper.ID))
+				recreated = true
+				continue
+			}
+			logger.Printf("restore_helper_started id=%q", shortID(helper.ID))
+			return "启动", nil
+		}
+
+		logger.Printf("restore_helper_remove_mismatch id=%q", shortID(helper.ID))
+		if err := removeContainer(ctx, api, helper.ID); err != nil {
+			return "", err
+		}
+		recreated = true
+	}
+
+	if err := createAndStartRestoreHelper(ctx, api, cfg, session, logger); err != nil {
+		return "", err
+	}
+	if recreated {
+		return "重建", nil
+	}
+	return "创建", nil
+}
+
+func createAndStartRestoreHelper(ctx context.Context, api dockerAPI, cfg bridgeConfig, session restoreSession, logger eventLogger) error {
+	options := restoreHelperCreateOptions(cfg, session)
+	logger.Printf("restore_helper_create name=%q image=%q mounts=%q labels=%q", options.Name, cfg.HelperImage, formatCreateMounts(options.HostConfig.Mounts), formatLabels(options.Config.Labels))
+	created, err := api.ContainerCreate(ctx, options)
+	if err != nil {
+		logger.Printf("restore_helper_create_error name=%q error=%q", options.Name, err)
+		if cerrdefs.IsNotFound(err) {
+			return restoreHelperImageNotFoundError(cfg.HelperImage, err)
+		}
+		if cerrdefs.IsAlreadyExists(err) || cerrdefs.IsConflict(err) {
+			return restoreHelperNameConflictError(session, options.Name, err)
+		}
+		return restoreHelperCreateError(session, err)
+	}
+	logger.Printf("restore_helper_created id=%q name=%q", shortID(created.ID), options.Name)
+
+	if _, err := api.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
+		logger.Printf("restore_helper_start_error id=%q error=%q", shortID(created.ID), err)
+		_ = removeContainer(ctx, api, created.ID)
+		return restoreHelperStartError(session, err)
+	}
+	logger.Printf("restore_helper_started id=%q", shortID(created.ID))
+	return nil
+}
+
+func restoreHelperCreateOptions(cfg bridgeConfig, session restoreSession) dockerclient.ContainerCreateOptions {
+	return dockerclient.ContainerCreateOptions{
+		Name: restoreHelperContainerName(session.SessionID),
+		Config: &container.Config{
+			Image:           cfg.HelperImage,
+			Cmd:             slices.Clone(helperCommand),
+			Labels:          restoreHelperLabels(session),
+			NetworkDisabled: true,
+		},
+		HostConfig: &container.HostConfig{
+			AutoRemove:  true,
+			NetworkMode: container.NetworkMode("none"),
+			Mounts:      restoreHelperMounts(cfg, session),
+		},
+	}
+}
+
+func restoreHelperLabels(session restoreSession) map[string]string {
+	return map[string]string{
+		labelProject:      labelTrue,
+		labelMode:         modeRestore,
+		labelSession:      session.SessionID,
+		labelSourceVolume: session.SourceVolume,
+		labelTargetVolume: session.TargetVolume,
+		labelFriendlyName: session.FriendlyName,
+	}
+}
+
+func restoreHelperMounts(cfg bridgeConfig, session restoreSession) []mount.Mount {
+	return []mount.Mount{
+		{
+			Type:   mount.TypeBind,
+			Source: cfg.BridgeSource,
+			Target: helperTargetRoot,
+			BindOptions: &mount.BindOptions{
+				Propagation: mount.PropagationRShared,
+			},
+		},
+		{
+			Type:   mount.TypeVolume,
+			Source: session.TargetVolume,
+			Target: path.Join(helperTargetRoot, restoreTargetSubdir, session.FriendlyName),
+		},
+	}
+}
+
+func restoreHelperMatches(found container.InspectResponse, cfg bridgeConfig, session restoreSession) bool {
+	if found.Config == nil || found.HostConfig == nil {
+		return false
+	}
+	if found.Config.Image != cfg.HelperImage {
+		return false
+	}
+	for key, want := range restoreHelperLabels(session) {
+		if found.Config.Labels[key] != want {
+			return false
+		}
+	}
+	if !slices.Equal(found.Config.Cmd, helperCommand) {
+		return false
+	}
+	if found.HostConfig.NetworkMode != container.NetworkMode("none") {
+		return false
+	}
+	if !found.HostConfig.AutoRemove {
+		return false
+	}
+	return mountsMatch(found.HostConfig.Mounts, restoreHelperMounts(cfg, session))
+}
+
+func listRestoreHelpersForSession(ctx context.Context, api dockerAPI, sessionID string) ([]container.Summary, error) {
+	result, err := api.ContainerList(ctx, dockerclient.ContainerListOptions{
+		All: true,
+		Filters: make(dockerclient.Filters).
+			Add("label", labelProject+"="+labelTrue).
+			Add("label", labelMode+"="+modeRestore).
+			Add("label", labelSession+"="+sessionID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("扫描恢复 helper 容器失败: %w", err)
+	}
+	return result.Items, nil
+}
+
+func restoreCleanup(ctx context.Context, api dockerAPI, sessionID string, out io.Writer, logger eventLogger) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return restoreCleanupSessionMissingError()
+	}
+	logger.Printf("restore_cleanup_start session=%q", sessionID)
+	helpers, err := listRestoreHelpersForSession(ctx, api, sessionID)
+	if err != nil {
+		logger.Printf("restore_cleanup_list_error session=%q error=%q", sessionID, err)
+		return restoreCleanupListError(sessionID, err)
+	}
+	logger.Printf("restore_cleanup_list session=%q count=%d", sessionID, len(helpers))
+
+	var errs []error
+	removed := 0
+	for _, helper := range helpers {
+		logger.Printf("restore_cleanup_candidate id=%q names=%q state=%q labels=%q", shortID(helper.ID), strings.Join(helper.Names, ","), helper.State, formatLabels(helper.Labels))
+		if !isManagedRestoreHelperSummary(helper, sessionID) {
+			logger.Printf("restore_cleanup_skip_incomplete_labels id=%q", shortID(helper.ID))
+			continue
+		}
+		if err := removeContainer(ctx, api, helper.ID); err != nil {
+			logger.Printf("restore_cleanup_remove_error id=%q error=%q", shortID(helper.ID), err)
+			errs = append(errs, fmt.Errorf("清理恢复 helper 容器 %q 失败: %w", helper.ID, err))
+			continue
+		}
+		logger.Printf("restore_cleanup_removed id=%q", shortID(helper.ID))
+		removed++
+	}
+
+	fmt.Fprintf(out, "已清理 %d 个恢复 helper 容器，session=%s，目标 volume 不会被删除\n", removed, sessionID)
+	logger.Printf("restore_cleanup_done session=%q removed=%d errors=%d", sessionID, removed, len(errs))
+	return errors.Join(errs...)
+}
+
+func isManagedRestoreHelperSummary(summary container.Summary, sessionID string) bool {
+	return summary.Labels[labelProject] == labelTrue &&
+		summary.Labels[labelMode] == modeRestore &&
+		summary.Labels[labelSession] == sessionID &&
+		summary.Labels[labelSourceVolume] != "" &&
+		summary.Labels[labelTargetVolume] != "" &&
+		summary.Labels[labelFriendlyName] != ""
+}
+
+func waitForRestoreVisibleMount(ctx context.Context, cfg bridgeConfig, session restoreSession, logger eventLogger) (visiblePathStatus, error) {
+	deadline := time.Now().Add(cfg.VerifyTimeout)
+	var status visiblePathStatus
+	for {
+		status = inspectVisiblePath(session.TargetPath)
+		if status.Exists && status.IsMount {
+			return status, nil
+		}
+		if cfg.VerifyTimeout <= 0 || time.Now().After(deadline) {
+			if !status.Exists {
+				return status, fmt.Errorf("路径不存在")
+			}
+			if !status.IsMount {
+				return status, fmt.Errorf("路径存在但不是挂载点")
+			}
+			return status, fmt.Errorf("路径不可用")
+		}
+		logger.Printf("restore_visible_wait session=%q target=%q status=%s", session.SessionID, session.TargetVolume, status.String())
+		timer := time.NewTimer(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return status, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func printRestoreInstructions(out io.Writer, cfg bridgeConfig, opts restoreOptions, session restoreSession) {
+	fmt.Fprintf(out, "%s %s -> %s\n", session.HelperAction, session.TargetVolume, session.TargetPath)
+	fmt.Fprintf(out, "RESTORE_SESSION_ID=%s\n", session.SessionID)
+	fmt.Fprintf(out, "RESTORE_TARGET_PATH=%s\n", session.TargetPath)
+	if session.TargetCreated {
+		fmt.Fprintf(out, "已创建目标 volume %s\n", session.TargetVolume)
+	} else {
+		fmt.Fprintf(out, "复用目标 volume %s\n", session.TargetVolume)
+	}
+	fmt.Fprintln(out, "推荐的 Kopia 恢复命令如下")
+	if opts.SourceDirectoryID != "" {
+		fmt.Fprintf(out, "kopia snapshot restore %s %s\n", opts.SourceDirectoryID, session.TargetPath)
+		return
+	}
+	sourcePath := visiblePath(cfg, volumeSpec{VolumeName: session.SourceVolume, FriendlyName: session.FriendlyName})
+	fmt.Fprintf(out, "kopia snapshot list %s\n", sourcePath)
+	if opts.SnapshotTime != "" {
+		fmt.Fprintf(out, "kopia snapshot restore %s %s --snapshot-time %s\n", sourcePath, session.TargetPath, opts.SnapshotTime)
+		return
+	}
+	fmt.Fprintf(out, "kopia snapshot restore %s %s --snapshot-time latest\n", sourcePath, session.TargetPath)
 }
 
 func buildVolumeSpecs(volumes []volume.Volume) ([]volumeSpec, error) {
@@ -312,6 +820,7 @@ func helperCreateOptions(cfg bridgeConfig, spec volumeSpec) dockerclient.Contain
 func helperLabels(spec volumeSpec) map[string]string {
 	return map[string]string{
 		labelProject:      labelTrue,
+		labelMode:         modeBackup,
 		labelVolume:       spec.VolumeName,
 		labelFriendlyName: spec.FriendlyName,
 	}
@@ -408,6 +917,17 @@ func listHelpersForVolume(ctx context.Context, api dockerAPI, volumeName string)
 	return result.Items, nil
 }
 
+func listBackupHelpers(ctx context.Context, api dockerAPI) ([]container.Summary, error) {
+	result, err := api.ContainerList(ctx, dockerclient.ContainerListOptions{
+		All:     true,
+		Filters: make(dockerclient.Filters).Add("label", labelProject+"="+labelTrue),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("扫描 helper 容器失败: %w", err)
+	}
+	return result.Items, nil
+}
+
 func listProjectHelpers(ctx context.Context, api dockerAPI) ([]container.Summary, error) {
 	result, err := api.ContainerList(ctx, dockerclient.ContainerListOptions{
 		All:     true,
@@ -430,8 +950,21 @@ func removeContainer(ctx context.Context, api dockerAPI, id string) error {
 }
 
 func helperContainerName(volumeName string) string {
-	sum := sha256.Sum256([]byte(volumeName))
-	return helperNamePrefix + hex.EncodeToString(sum[:8])
+	return helperNamePrefix + hashString(volumeName)
+}
+
+func restoreHelperContainerName(sessionID string) string {
+	return restoreHelperNamePrefix + hashString(sessionID)
+}
+
+func hashString(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:8])
+}
+
+func defaultRestoreSessionID(sourceVolume, targetVolume string) string {
+	stamp := time.Now().UTC().Format("20060102-150405")
+	return sanitizePathName(sourceVolume) + "-to-" + sanitizePathName(targetVolume) + "-" + stamp
 }
 
 func friendlyNameForVolume(vol volume.Volume) (string, error) {
@@ -490,7 +1023,9 @@ func containerHasName(summary container.Summary, name string) bool {
 }
 
 func isManagedHelperSummary(summary container.Summary) bool {
+	mode := summary.Labels[labelMode]
 	return summary.Labels[labelProject] == labelTrue &&
+		(mode == "" || mode == modeBackup) &&
 		summary.Labels[labelVolume] != "" &&
 		summary.Labels[labelFriendlyName] != ""
 }
@@ -690,6 +1225,10 @@ func visiblePath(cfg bridgeConfig, spec volumeSpec) string {
 	return filepath.Join(cfg.VisibleRoot, spec.FriendlyName)
 }
 
+func restoreVisiblePath(cfg bridgeConfig, friendlyName string) string {
+	return filepath.Join(cfg.RestoreVisibleRoot, friendlyName)
+}
+
 func kopiaSnapshotPathForSource(cfg bridgeConfig, specs []volumeSpec, sourcePath string) (string, bool) {
 	sourcePath = strings.TrimSpace(sourcePath)
 	if sourcePath == "" {
@@ -777,6 +1316,30 @@ func describeInspect(found container.InspectResponse, cfg bridgeConfig, spec vol
 		mounts = formatCreateMounts(found.HostConfig.Mounts)
 	}
 	return fmt.Sprintf("image=%q cmd=%q %s network=%q autoremove=%t labels=%q mounts=%q expected_match=%t", image, cmd, state, networkMode, autoRemove, labels, mounts, helperMatches(found, cfg, spec))
+}
+
+func describeRestoreInspect(found container.InspectResponse, cfg bridgeConfig, session restoreSession) string {
+	state := "<nil>"
+	if found.State != nil {
+		state = fmt.Sprintf("status=%s running=%t exit=%d error=%q", found.State.Status, found.State.Running, found.State.ExitCode, found.State.Error)
+	}
+	image := "<nil>"
+	labels := ""
+	cmd := ""
+	if found.Config != nil {
+		image = found.Config.Image
+		labels = formatLabels(found.Config.Labels)
+		cmd = strings.Join(found.Config.Cmd, " ")
+	}
+	networkMode := ""
+	autoRemove := false
+	mounts := ""
+	if found.HostConfig != nil {
+		networkMode = string(found.HostConfig.NetworkMode)
+		autoRemove = found.HostConfig.AutoRemove
+		mounts = formatCreateMounts(found.HostConfig.Mounts)
+	}
+	return fmt.Sprintf("image=%q cmd=%q %s network=%q autoremove=%t labels=%q mounts=%q expected_match=%t", image, cmd, state, networkMode, autoRemove, labels, mounts, restoreHelperMatches(found, cfg, session))
 }
 
 func formatCreateMounts(mounts []mount.Mount) string {

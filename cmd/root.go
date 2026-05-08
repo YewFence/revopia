@@ -45,6 +45,8 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(
 		newPrepareCommand(),
 		newCleanupCommand(),
+		newRestoreCommand(),
+		newRestoreCleanupCommand(),
 		newInspectCommand(),
 		newVersionCommand(),
 	)
@@ -53,7 +55,7 @@ func newRootCommand() *cobra.Command {
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		writeErrorWithHints(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -110,7 +112,7 @@ func withDockerClient(cmd *cobra.Command, opts bridgeOptions, commandName string
 	}
 	defer logCloser.Close()
 
-	logger.Printf("command=%s bridge_source=%q visible_root=%q helper_image=%q timeout=%s verify_timeout=%s", commandName, opts.cfg.BridgeSource, opts.cfg.VisibleRoot, opts.cfg.HelperImage, opts.timeout, opts.verifyTimeout)
+	logger.Printf("command=%s bridge_source=%q visible_root=%q restore_root=%q helper_image=%q timeout=%s verify_timeout=%s", commandName, opts.cfg.BridgeSource, opts.cfg.VisibleRoot, opts.cfg.RestoreVisibleRoot, opts.cfg.HelperImage, opts.timeout, opts.verifyTimeout)
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
 	defer cancel()

@@ -96,6 +96,9 @@ func TestHelperCreateOptions(t *testing.T) {
 	if got := options.Config.Labels[labelVolume]; got != spec.VolumeName {
 		t.Fatalf("volume label = %q", got)
 	}
+	if got := options.Config.Labels[labelMode]; got != modeBackup {
+		t.Fatalf("mode label = %q", got)
+	}
 	if got := options.HostConfig.Mounts[1].Target; got != path.Join(helperTargetRoot, spec.FriendlyName) {
 		t.Fatalf("volume mount target = %q", got)
 	}
@@ -135,6 +138,89 @@ func TestHelperMatches(t *testing.T) {
 	}
 }
 
+func TestRestoreHelperCreateOptions(t *testing.T) {
+	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	session := restoreSession{
+		SourceVolume: "db-data",
+		TargetVolume: "db-data-restore",
+		FriendlyName: "database",
+		SessionID:    "restore-session",
+	}
+
+	options := restoreHelperCreateOptions(cfg, session)
+	if options.Name != restoreHelperContainerName(session.SessionID) {
+		t.Fatalf("container name = %q", options.Name)
+	}
+	if got := options.Config.Labels[labelMode]; got != modeRestore {
+		t.Fatalf("mode label = %q", got)
+	}
+	if got := options.Config.Labels[labelSession]; got != session.SessionID {
+		t.Fatalf("session label = %q", got)
+	}
+	if got := options.HostConfig.Mounts[1].Target; got != path.Join(helperTargetRoot, restoreTargetSubdir, session.FriendlyName) {
+		t.Fatalf("restore mount target = %q", got)
+	}
+	if options.HostConfig.Mounts[1].ReadOnly {
+		t.Fatal("restore target volume mount should be writable")
+	}
+}
+
+func TestRestoreHelperMatches(t *testing.T) {
+	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	session := restoreSession{
+		SourceVolume: "db-data",
+		TargetVolume: "db-data-restore",
+		FriendlyName: "database",
+		SessionID:    "restore-session",
+	}
+	options := restoreHelperCreateOptions(cfg, session)
+
+	found := container.InspectResponse{
+		Config:     options.Config,
+		HostConfig: options.HostConfig,
+	}
+	if !restoreHelperMatches(found, cfg, session) {
+		t.Fatal("expected restore helper to match")
+	}
+
+	found.HostConfig = &container.HostConfig{
+		AutoRemove:  true,
+		NetworkMode: container.NetworkMode("none"),
+		Mounts: []mount.Mount{
+			options.HostConfig.Mounts[0],
+			{
+				Type:     mount.TypeVolume,
+				Source:   session.TargetVolume,
+				Target:   path.Join(helperTargetRoot, restoreTargetSubdir, session.FriendlyName),
+				ReadOnly: true,
+			},
+		},
+	}
+	if restoreHelperMatches(found, cfg, session) {
+		t.Fatal("expected read only restore mount to be rejected")
+	}
+}
+
+func TestValidateRestoreInputsRejectsUnsafeDefaults(t *testing.T) {
+	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	err := validateRestoreInputs(cfg, restoreOptions{
+		SourceVolume: "db-data",
+		TargetVolume: "db-data",
+	})
+	if err == nil {
+		t.Fatal("expected same source and target to be rejected")
+	}
+
+	err = validateRestoreInputs(cfg, restoreOptions{
+		SourceVolume:      "db-data",
+		TargetVolume:      "db-data",
+		AllowSourceTarget: true,
+	})
+	if err != nil {
+		t.Fatalf("same source and target with explicit dangerous flag should pass: %v", err)
+	}
+}
+
 func TestKopiaSnapshotPathForSource(t *testing.T) {
 	cfg := bridgeConfig{VisibleRoot: "/volumes"}
 	specs := []volumeSpec{
@@ -171,12 +257,18 @@ func TestIsManagedHelperSummary(t *testing.T) {
 	summary := container.Summary{
 		Labels: map[string]string{
 			labelProject:      labelTrue,
+			labelMode:         modeBackup,
 			labelVolume:       "db-data",
 			labelFriendlyName: "database",
 		},
 	}
 	if !isManagedHelperSummary(summary) {
 		t.Fatal("expected complete helper labels to be managed")
+	}
+
+	delete(summary.Labels, labelMode)
+	if !isManagedHelperSummary(summary) {
+		t.Fatal("expected legacy helper labels without mode to be managed")
 	}
 
 	delete(summary.Labels, labelFriendlyName)
