@@ -16,6 +16,7 @@ services:
       - kopia-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
       - /mnt/volumes-backup:/volumes:rshared
+      - /mnt/volumes-backup/restore:/restore:rslave
       - ./bin/volume-backup:/bin/volume-backup
     stdin_open: true
     tty: true

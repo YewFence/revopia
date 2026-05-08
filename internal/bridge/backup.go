@@ -243,19 +243,23 @@ func helperLabels(spec volumeSpec) map[string]string {
 
 func helperMounts(cfg Config, spec volumeSpec) []mount.Mount {
 	return []mount.Mount{
-		{
-			Type:   mount.TypeBind,
-			Source: cfg.BridgeSource,
-			Target: helperTargetRoot,
-			BindOptions: &mount.BindOptions{
-				Propagation: mount.PropagationRShared,
-			},
-		},
+		bridgeBindMount(cfg),
 		{
 			Type:     mount.TypeVolume,
 			Source:   spec.VolumeName,
 			Target:   path.Join(helperTargetRoot, spec.FriendlyName),
 			ReadOnly: true,
+		},
+	}
+}
+
+func bridgeBindMount(cfg Config) mount.Mount {
+	return mount.Mount{
+		Type:   mount.TypeBind,
+		Source: cfg.BridgeSource,
+		Target: helperTargetRoot,
+		BindOptions: &mount.BindOptions{
+			Propagation: mount.PropagationRShared,
 		},
 	}
 }

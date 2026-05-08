@@ -108,9 +108,14 @@ func inspectVisiblePath(target string) visiblePathStatus {
 }
 
 func isMountPoint(target string) (bool, error) {
+	_, mounted, err := mountInfoForPath(target)
+	return mounted, err
+}
+
+func mountInfoForPath(target string) (string, bool, error) {
 	content, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	cleanTarget := filepath.Clean(target)
 	for _, line := range strings.Split(string(content), "\n") {
@@ -123,13 +128,13 @@ func isMountPoint(target string) (bool, error) {
 		}
 		mountPoint, err := decodeMountInfoPath(fields[4])
 		if err != nil {
-			return false, err
+			return "", false, err
 		}
 		if filepath.Clean(mountPoint) == cleanTarget {
-			return true, nil
+			return line, true, nil
 		}
 	}
-	return false, nil
+	return "", false, nil
 }
 
 func decodeMountInfoPath(raw string) (string, error) {

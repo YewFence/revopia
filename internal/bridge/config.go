@@ -28,12 +28,14 @@ const (
 
 	modeBackup  = "backup"
 	modeRestore = "restore"
+	modeCleanup = "cleanup"
 
-	helperNamePrefix        = "kopia-volume-bridge-"
-	restoreHelperNamePrefix = "kopia-volume-restore-bridge-"
-	helperTargetRoot        = "/bridge"
-	restoreTargetSubdir     = "restore"
-	defaultVerifyTimeout    = 5 * time.Second
+	helperNamePrefix         = "kopia-volume-bridge-"
+	restoreHelperNamePrefix  = "kopia-volume-restore-bridge-"
+	cleanupUnmountNamePrefix = "kopia-volume-cleanup-umount-"
+	helperTargetRoot         = "/bridge"
+	restoreTargetSubdir      = "restore"
+	defaultVerifyTimeout     = 5 * time.Second
 )
 
 var helperCommand = []string{"sleep", "infinity"}
@@ -50,6 +52,7 @@ type DockerAPI interface {
 	ContainerCreate(context.Context, dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error)
 	ContainerStart(context.Context, string, dockerclient.ContainerStartOptions) (dockerclient.ContainerStartResult, error)
 	ContainerWait(context.Context, string, dockerclient.ContainerWaitOptions) dockerclient.ContainerWaitResult
+	ContainerLogs(context.Context, string, dockerclient.ContainerLogsOptions) (dockerclient.ContainerLogsResult, error)
 	ContainerRemove(context.Context, string, dockerclient.ContainerRemoveOptions) (dockerclient.ContainerRemoveResult, error)
 }
 
@@ -74,6 +77,10 @@ type RestoreOptions struct {
 	SessionID           string
 	AllowSourceTarget   bool
 	AllowNonEmptyTarget bool
+}
+
+type CleanupOptions struct {
+	LazyUnmount bool
 }
 
 type restoreSession struct {

@@ -134,14 +134,7 @@ func restoreHelperLabels(session restoreSession) map[string]string {
 
 func restoreHelperMounts(cfg Config, session restoreSession) []mount.Mount {
 	return []mount.Mount{
-		{
-			Type:   mount.TypeBind,
-			Source: cfg.BridgeSource,
-			Target: helperTargetRoot,
-			BindOptions: &mount.BindOptions{
-				Propagation: mount.PropagationRShared,
-			},
-		},
+		bridgeBindMount(cfg),
 		{
 			Type:   mount.TypeVolume,
 			Source: session.TargetVolume,

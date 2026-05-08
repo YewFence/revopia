@@ -276,3 +276,106 @@ func TestIsManagedHelperSummary(t *testing.T) {
 		t.Fatal("expected incomplete helper labels to be ignored")
 	}
 }
+
+func TestValidateCleanupFriendlyName(t *testing.T) {
+	for _, name := range []string{"database", "prod_db.01"} {
+		if err := validateCleanupFriendlyName(name); err != nil {
+			t.Fatalf("validateCleanupFriendlyName(%q): %v", name, err)
+		}
+	}
+
+	for _, name := range []string{"", ".", "..", "../secret", "app/secret", "app..data", "bad name"} {
+		if err := validateCleanupFriendlyName(name); err == nil {
+			t.Fatalf("validateCleanupFriendlyName(%q) should reject unsafe name", name)
+		}
+	}
+}
+
+func TestCleanupUnmountCommandArgs(t *testing.T) {
+	targetPath := "/volumes/database"
+
+	got := cleanupUnmountCommandArgs(CleanupOptions{}, targetPath)
+	if len(got) != 1 || got[0] != targetPath {
+		t.Fatalf("cleanup umount args = %v", got)
+	}
+
+	got = cleanupUnmountCommandArgs(CleanupOptions{LazyUnmount: true}, targetPath)
+	if len(got) != 2 || got[0] != "-l" || got[1] != targetPath {
+		t.Fatalf("lazy cleanup umount args = %v", got)
+	}
+}
+
+func TestCleanupUnmountContainerCreateOptions(t *testing.T) {
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	target := cleanupTarget{FriendlyName: "database"}
+
+	options := cleanupUnmountContainerCreateOptions(cfg, CleanupOptions{}, target)
+	if options.Name != cleanupUnmountContainerName(target.FriendlyName) {
+		t.Fatalf("container name = %q", options.Name)
+	}
+	if options.Config.Image != "alpine" {
+		t.Fatalf("image = %q", options.Config.Image)
+	}
+	if got := options.Config.Labels[labelMode]; got != modeCleanup {
+		t.Fatalf("mode label = %q", got)
+	}
+	if len(options.Config.Cmd) != 2 || options.Config.Cmd[0] != "umount" || options.Config.Cmd[1] != path.Join(helperTargetRoot, target.FriendlyName) {
+		t.Fatalf("cleanup command = %v", options.Config.Cmd)
+	}
+	if options.HostConfig.NetworkMode != container.NetworkMode("none") {
+		t.Fatalf("network mode = %q", options.HostConfig.NetworkMode)
+	}
+	if !options.HostConfig.ReadonlyRootfs {
+		t.Fatal("cleanup container rootfs should be read only")
+	}
+	if got := strings.Join(options.HostConfig.CapDrop, ","); got != "ALL" {
+		t.Fatalf("cap drop = %q", got)
+	}
+	if got := strings.Join(options.HostConfig.CapAdd, ","); got != "SYS_ADMIN" {
+		t.Fatalf("cap add = %q", got)
+	}
+	if got := strings.Join(options.HostConfig.SecurityOpt, ","); got != "no-new-privileges:true" {
+		t.Fatalf("security options = %q", got)
+	}
+	if options.HostConfig.AutoRemove {
+		t.Fatal("cleanup container should be removed explicitly after logs are collected")
+	}
+
+	if len(options.HostConfig.Mounts) != 1 {
+		t.Fatalf("mount count = %d", len(options.HostConfig.Mounts))
+	}
+	bridgeMount := options.HostConfig.Mounts[0]
+	if bridgeMount.Type != mount.TypeBind || bridgeMount.Source != cfg.BridgeSource || bridgeMount.Target != helperTargetRoot {
+		t.Fatalf("bridge mount = %#v", bridgeMount)
+	}
+	if bridgeMount.BindOptions == nil || bridgeMount.BindOptions.Propagation != mount.PropagationRShared {
+		t.Fatalf("bridge mount propagation = %#v", bridgeMount.BindOptions)
+	}
+}
+
+func TestCleanupUnmountContainerCreateOptionsLazy(t *testing.T) {
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	target := cleanupTarget{FriendlyName: "database"}
+
+	options := cleanupUnmountContainerCreateOptions(cfg, CleanupOptions{LazyUnmount: true}, target)
+	wantTarget := path.Join(helperTargetRoot, target.FriendlyName)
+	if len(options.Config.Cmd) != 3 || options.Config.Cmd[0] != "umount" || options.Config.Cmd[1] != "-l" || options.Config.Cmd[2] != wantTarget {
+		t.Fatalf("lazy cleanup command = %v", options.Config.Cmd)
+	}
+}
+
+func TestCleanupTargetPathChecked(t *testing.T) {
+	cfg := Config{VisibleRoot: "/volumes"}
+
+	got, err := cleanupTargetPathChecked(cfg, "database")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/volumes/database" {
+		t.Fatalf("cleanup target path = %q", got)
+	}
+
+	if _, err := cleanupTargetPathChecked(cfg, "../database"); err == nil {
+		t.Fatal("expected escaped target path to be rejected")
+	}
+}

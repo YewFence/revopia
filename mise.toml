@@ -8,6 +8,7 @@ go = "1.25"
 # https://golangci-lint.run/
 golangci-lint = "2"
 "github:jj-vcs/jj" = "latest"
+lazydocker = "latest"
 
 [tasks.tidy]
 description = "整理 Go 模块依赖"
@@ -53,3 +54,6 @@ run = [
 [tasks.run]
 description = "运行 CLI"
 run = "go run ."
+
+[shell_alias]
+kopia = "docker compose exec -T kopia kopia"

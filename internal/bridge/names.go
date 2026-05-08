@@ -19,6 +19,10 @@ func restoreHelperContainerName(sessionID string) string {
 	return restoreHelperNamePrefix + hashString(sessionID)
 }
 
+func cleanupUnmountContainerName(friendlyName string) string {
+	return cleanupUnmountNamePrefix + hashString(friendlyName)
+}
+
 func hashString(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:8])
