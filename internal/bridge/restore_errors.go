@@ -1,4 +1,4 @@
-package cmd
+package bridge
 
 import (
 	"fmt"
@@ -50,7 +50,7 @@ func restoreSameSourceTargetError(sourceVolume string) error {
 	)
 }
 
-func restoreUnsafeSessionIDError(opts restoreOptions) error {
+func restoreUnsafeSessionIDError(opts RestoreOptions) error {
 	return withHints(
 		fmt.Errorf("session id %q 不是路径安全名称", opts.SessionID),
 		"session id 只能使用路径安全字符，建议只用字母、数字、点、下划线和短横线",
@@ -106,7 +106,7 @@ func restoreTargetVolumeCreateError(targetVolume string, err error) error {
 	)
 }
 
-func restoreEmptyCheckCreateError(cfg bridgeConfig, targetVolume string, err error) error {
+func restoreEmptyCheckCreateError(cfg Config, targetVolume string, err error) error {
 	return withHints(
 		fmt.Errorf("创建目标 volume 空目录检查容器失败: %w", err),
 		restoreHelperImageHint(cfg.HelperImage),
@@ -140,7 +140,7 @@ func restoreTargetVolumeNotEmptyError(session restoreSession) error {
 	)
 }
 
-func restoreVisibleMountError(cfg bridgeConfig, session restoreSession, err error) error {
+func restoreVisibleMountError(cfg Config, session restoreSession, err error) error {
 	return withHints(
 		fmt.Errorf("恢复目标 volume %q 没有在 %q 中变成可见挂载: %w", session.TargetVolume, session.TargetPath, err),
 		restorePropagationHint(cfg),
@@ -207,7 +207,7 @@ func restoreHelperImageHint(helperImage string) string {
 	return fmt.Sprintf("先拉取 helper 镜像 `docker pull %s`，或者用 --helper-image 换成环境里已有的小镜像", shellArg(helperImage))
 }
 
-func restorePropagationHint(cfg bridgeConfig) string {
+func restorePropagationHint(cfg Config) string {
 	return fmt.Sprintf("确认宿主机 bridge 路径 %s 是 shared mount，并且 Kopia 容器把它挂到恢复根路径 %s", shellArg(cfg.BridgeSource), shellArg(cfg.RestoreVisibleRoot))
 }
 

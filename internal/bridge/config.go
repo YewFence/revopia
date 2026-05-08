@@ -1,0 +1,112 @@
+package bridge
+
+import (
+	"context"
+	"os"
+	"strings"
+	"time"
+
+	dockerclient "github.com/moby/moby/client"
+)
+
+const (
+	labelBackupEnable = "backup.enable"
+	labelBackupName   = "backup.name"
+
+	labelProject       = "kopia.volume-bridge"
+	labelVolume        = "kopia.volume-bridge.volume"
+	labelFriendlyName  = "kopia.volume-bridge.name"
+	labelMode          = "kopia.volume-bridge.mode"
+	labelSession       = "kopia.volume-bridge.session"
+	labelSourceVolume  = "kopia.volume-bridge.source-volume"
+	labelTargetVolume  = "kopia.volume-bridge.target-volume"
+	labelCreatedAt     = "kopia.volume-bridge.created-at"
+	labelCreatedBy     = "kopia.volume-bridge.created-by"
+	labelRestoreTarget = "kopia.volume-bridge.restore-target"
+
+	labelTrue = "true"
+
+	modeBackup  = "backup"
+	modeRestore = "restore"
+
+	helperNamePrefix        = "kopia-volume-bridge-"
+	restoreHelperNamePrefix = "kopia-volume-restore-bridge-"
+	helperTargetRoot        = "/bridge"
+	restoreTargetSubdir     = "restore"
+	defaultVerifyTimeout    = 5 * time.Second
+)
+
+var helperCommand = []string{"sleep", "infinity"}
+var emptyCheckCommand = []string{"sh", "-c", "set -eu; test -d /target; if find /target -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then exit 1; fi"}
+
+var appVersion = "dev"
+
+type DockerAPI interface {
+	VolumeList(context.Context, dockerclient.VolumeListOptions) (dockerclient.VolumeListResult, error)
+	VolumeInspect(context.Context, string, dockerclient.VolumeInspectOptions) (dockerclient.VolumeInspectResult, error)
+	VolumeCreate(context.Context, dockerclient.VolumeCreateOptions) (dockerclient.VolumeCreateResult, error)
+	ContainerList(context.Context, dockerclient.ContainerListOptions) (dockerclient.ContainerListResult, error)
+	ContainerInspect(context.Context, string, dockerclient.ContainerInspectOptions) (dockerclient.ContainerInspectResult, error)
+	ContainerCreate(context.Context, dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error)
+	ContainerStart(context.Context, string, dockerclient.ContainerStartOptions) (dockerclient.ContainerStartResult, error)
+	ContainerWait(context.Context, string, dockerclient.ContainerWaitOptions) dockerclient.ContainerWaitResult
+	ContainerRemove(context.Context, string, dockerclient.ContainerRemoveOptions) (dockerclient.ContainerRemoveResult, error)
+}
+
+type Config struct {
+	BridgeSource       string
+	VisibleRoot        string
+	RestoreVisibleRoot string
+	HelperImage        string
+	VerifyTimeout      time.Duration
+}
+
+type volumeSpec struct {
+	VolumeName   string
+	FriendlyName string
+}
+
+type RestoreOptions struct {
+	SourceVolume        string
+	TargetVolume        string
+	SourceDirectoryID   string
+	SnapshotTime        string
+	SessionID           string
+	AllowSourceTarget   bool
+	AllowNonEmptyTarget bool
+}
+
+type restoreSession struct {
+	SourceVolume  string
+	TargetVolume  string
+	FriendlyName  string
+	SessionID     string
+	TargetPath    string
+	TargetCreated bool
+	HelperAction  string
+}
+
+func DefaultConfig() Config {
+	return Config{
+		BridgeSource:       getenvDefault("KOPIA_VOLUME_BRIDGE_SOURCE", "/mnt/volumes-backup"),
+		VisibleRoot:        getenvDefault("KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT", "/volumes"),
+		RestoreVisibleRoot: getenvDefault("KOPIA_VOLUME_BRIDGE_RESTORE_ROOT", "/restore"),
+		HelperImage:        getenvDefault("KOPIA_VOLUME_BRIDGE_HELPER_IMAGE", "alpine"),
+		VerifyTimeout:      defaultVerifyTimeout,
+	}
+}
+
+func SetVersion(version string) {
+	appVersion = version
+}
+
+func getenvDefault(key, fallback string) string {
+	if value := strings.TrimSpace(getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+var getenv = func(key string) string {
+	return strings.TrimSpace(strings.Trim(os.Getenv(key), "\x00"))
+}

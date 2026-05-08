@@ -1,12 +1,6 @@
-package cmd
+package bridge
 
-import (
-	"errors"
-	"fmt"
-	"io"
-
-	"github.com/yewfence/volume-backup/internal/bridge"
-)
+import "errors"
 
 type hintedError struct {
 	err   error
@@ -35,20 +29,24 @@ func (e hintedError) Hints() []string {
 	return e.hints
 }
 
-func writeErrorWithHints(out io.Writer, err error) {
-	_, _ = fmt.Fprintln(out, err)
-	hints := hintsForError(err)
-	if len(hints) == 0 {
-		return
-	}
-	_, _ = fmt.Fprintln(out, "提示")
+func compactHints(hints []string) []string {
+	seen := make(map[string]struct{}, len(hints))
+	result := make([]string, 0, len(hints))
 	for _, hint := range hints {
-		_, _ = fmt.Fprintf(out, "  %s\n", hint)
+		if hint == "" {
+			continue
+		}
+		if _, ok := seen[hint]; ok {
+			continue
+		}
+		seen[hint] = struct{}{}
+		result = append(result, hint)
 	}
+	return result
 }
 
-func hintsForError(err error) []string {
-	return compactHints(append(collectHints(err, nil), bridge.HintsForError(err)...))
+func HintsForError(err error) []string {
+	return compactHints(collectHints(err, nil))
 }
 
 func collectHints(err error, hints []string) []string {
@@ -80,20 +78,4 @@ func collectHints(err error, hints []string) []string {
 		return collectHints(unwrapped.Unwrap(), hints)
 	}
 	return hints
-}
-
-func compactHints(hints []string) []string {
-	seen := make(map[string]struct{}, len(hints))
-	result := make([]string, 0, len(hints))
-	for _, hint := range hints {
-		if hint == "" {
-			continue
-		}
-		if _, ok := seen[hint]; ok {
-			continue
-		}
-		seen[hint] = struct{}{}
-		result = append(result, hint)
-	}
-	return result
 }

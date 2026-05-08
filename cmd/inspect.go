@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+	"github.com/yewfence/volume-backup/internal/bridge"
 )
 
 func newInspectCommand() *cobra.Command {
@@ -13,8 +14,8 @@ func newInspectCommand() *cobra.Command {
 		Short: "Inspect volumes and helper containers",
 		Args:  noArgs("inspect"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withDockerClient(cmd, opts, "inspect", func(ctx context.Context, api dockerAPI, logger eventLogger) error {
-				return inspectState(ctx, api, opts.cfg, cmd.OutOrStdout(), logger)
+			return withDockerClient(cmd, opts, "inspect", func(ctx context.Context, api bridge.DockerAPI, logger bridge.Logger) error {
+				return bridge.InspectState(ctx, api, opts.cfg, cmd.OutOrStdout(), logger)
 			})
 		},
 	}

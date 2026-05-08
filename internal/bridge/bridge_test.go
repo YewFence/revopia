@@ -1,4 +1,4 @@
-package cmd
+package bridge
 
 import (
 	"path"
@@ -83,7 +83,7 @@ func TestHelperContainerNameIsStableAndOpaque(t *testing.T) {
 }
 
 func TestHelperCreateOptions(t *testing.T) {
-	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
 	spec := volumeSpec{VolumeName: "db-data", FriendlyName: "database"}
 
 	options := helperCreateOptions(cfg, spec)
@@ -108,7 +108,7 @@ func TestHelperCreateOptions(t *testing.T) {
 }
 
 func TestHelperMatches(t *testing.T) {
-	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
 	spec := volumeSpec{VolumeName: "db-data", FriendlyName: "database"}
 	options := helperCreateOptions(cfg, spec)
 
@@ -139,7 +139,7 @@ func TestHelperMatches(t *testing.T) {
 }
 
 func TestRestoreHelperCreateOptions(t *testing.T) {
-	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
 	session := restoreSession{
 		SourceVolume: "db-data",
 		TargetVolume: "db-data-restore",
@@ -166,7 +166,7 @@ func TestRestoreHelperCreateOptions(t *testing.T) {
 }
 
 func TestRestoreHelperMatches(t *testing.T) {
-	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
 	session := restoreSession{
 		SourceVolume: "db-data",
 		TargetVolume: "db-data-restore",
@@ -202,8 +202,8 @@ func TestRestoreHelperMatches(t *testing.T) {
 }
 
 func TestValidateRestoreInputsRejectsUnsafeDefaults(t *testing.T) {
-	cfg := bridgeConfig{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
-	err := validateRestoreInputs(cfg, restoreOptions{
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	err := validateRestoreInputs(cfg, RestoreOptions{
 		SourceVolume: "db-data",
 		TargetVolume: "db-data",
 	})
@@ -211,7 +211,7 @@ func TestValidateRestoreInputsRejectsUnsafeDefaults(t *testing.T) {
 		t.Fatal("expected same source and target to be rejected")
 	}
 
-	err = validateRestoreInputs(cfg, restoreOptions{
+	err = validateRestoreInputs(cfg, RestoreOptions{
 		SourceVolume:      "db-data",
 		TargetVolume:      "db-data",
 		AllowSourceTarget: true,
@@ -222,7 +222,7 @@ func TestValidateRestoreInputsRejectsUnsafeDefaults(t *testing.T) {
 }
 
 func TestKopiaSnapshotPathForSource(t *testing.T) {
-	cfg := bridgeConfig{VisibleRoot: "/volumes"}
+	cfg := Config{VisibleRoot: "/volumes"}
 	specs := []volumeSpec{
 		{VolumeName: "db-data", FriendlyName: "database"},
 		{VolumeName: "cache-data", FriendlyName: "cache"},

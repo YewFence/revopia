@@ -4,19 +4,20 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+	"github.com/yewfence/volume-backup/internal/bridge"
 )
 
 func newRestoreCommand() *cobra.Command {
 	opts := newBridgeOptions(true)
-	restoreOpts := restoreOptions{}
+	restoreOpts := bridge.RestoreOptions{}
 	cmd := &cobra.Command{
 		Use:   "restore",
 		Short: "Prepare a target Docker volume for Kopia restore",
 		Args:  noArgs("restore"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.cfg.VerifyTimeout = opts.verifyTimeout
-			return withDockerClient(cmd, opts, "restore", func(ctx context.Context, api dockerAPI, logger eventLogger) error {
-				return restore(ctx, api, opts.cfg, restoreOpts, cmd.OutOrStdout(), logger)
+			return withDockerClient(cmd, opts, "restore", func(ctx context.Context, api bridge.DockerAPI, logger bridge.Logger) error {
+				return bridge.Restore(ctx, api, opts.cfg, restoreOpts, cmd.OutOrStdout(), logger)
 			})
 		},
 	}
@@ -32,8 +33,8 @@ func newRestoreCleanupCommand() *cobra.Command {
 		Short: "Remove restore helper containers for a session",
 		Args:  noArgs("restore-cleanup"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withDockerClient(cmd, opts, "restore-cleanup", func(ctx context.Context, api dockerAPI, logger eventLogger) error {
-				return restoreCleanup(ctx, api, sessionID, cmd.OutOrStdout(), logger)
+			return withDockerClient(cmd, opts, "restore-cleanup", func(ctx context.Context, api bridge.DockerAPI, logger bridge.Logger) error {
+				return bridge.RestoreCleanup(ctx, api, sessionID, cmd.OutOrStdout(), logger)
 			})
 		},
 	}
@@ -42,7 +43,7 @@ func newRestoreCleanupCommand() *cobra.Command {
 	return cmd
 }
 
-func addRestoreFlags(cmd *cobra.Command, opts *bridgeOptions, restoreOpts *restoreOptions) {
+func addRestoreFlags(cmd *cobra.Command, opts *bridgeOptions, restoreOpts *bridge.RestoreOptions) {
 	addBridgeFlags(cmd, opts, true)
 	flags := cmd.Flags()
 	flags.StringVar(&opts.cfg.RestoreVisibleRoot, "restore-root", opts.cfg.RestoreVisibleRoot, "Kopia 容器内可见的恢复根路径")

@@ -11,17 +11,17 @@ import (
 
 	dockerclient "github.com/moby/moby/client"
 	"github.com/spf13/cobra"
+	"github.com/yewfence/volume-backup/internal/bridge"
 )
 
 const (
-	defaultTimeout       = 30 * time.Second
-	defaultVerifyTimeout = 5 * time.Second
+	defaultTimeout = 30 * time.Second
 )
 
 var appVersion = "dev"
 
 type bridgeOptions struct {
-	cfg           bridgeConfig
+	cfg           bridge.Config
 	timeout       time.Duration
 	verifyTimeout time.Duration
 	logFile       string
@@ -62,10 +62,11 @@ func Execute() {
 
 func SetVersion(version string) {
 	appVersion = version
+	bridge.SetVersion(version)
 }
 
 func newBridgeOptions(includeVerify bool) bridgeOptions {
-	cfg := defaultBridgeConfig()
+	cfg := bridge.DefaultConfig()
 	opts := bridgeOptions{
 		cfg:           cfg,
 		timeout:       defaultTimeout,
@@ -105,12 +106,14 @@ func noArgs(commandName string) cobra.PositionalArgs {
 	}
 }
 
-func withDockerClient(cmd *cobra.Command, opts bridgeOptions, commandName string, run func(context.Context, dockerAPI, eventLogger) error) error {
+func withDockerClient(cmd *cobra.Command, opts bridgeOptions, commandName string, run func(context.Context, bridge.DockerAPI, bridge.Logger) error) error {
 	logCloser, logger, err := openCommandLog(opts.logFile)
 	if err != nil {
 		return err
 	}
-	defer logCloser.Close()
+	defer func() {
+		_ = logCloser.Close()
+	}()
 
 	logger.Printf("command=%s bridge_source=%q visible_root=%q restore_root=%q helper_image=%q timeout=%s verify_timeout=%s", commandName, opts.cfg.BridgeSource, opts.cfg.VisibleRoot, opts.cfg.RestoreVisibleRoot, opts.cfg.HelperImage, opts.timeout, opts.verifyTimeout)
 
@@ -122,7 +125,9 @@ func withDockerClient(cmd *cobra.Command, opts bridgeOptions, commandName string
 		logger.Printf("docker_client error=%q", err)
 		return fmt.Errorf("创建 Docker 客户端失败: %w", err)
 	}
-	defer apiClient.Close()
+	defer func() {
+		_ = apiClient.Close()
+	}()
 
 	return run(ctx, apiClient, logger)
 }
@@ -134,20 +139,20 @@ func defaultLogFile() string {
 	return "/app/logs/volume-bridge.log"
 }
 
-func openCommandLog(path string) (io.Closer, eventLogger, error) {
+func openCommandLog(path string) (io.Closer, bridge.Logger, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nopCloser{}, eventLogger{out: io.Discard}, nil
+		return nopCloser{}, bridge.NewLogger(io.Discard), nil
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, eventLogger{}, fmt.Errorf("创建日志目录失败 %q: %w", filepath.Dir(path), err)
+		return nil, bridge.Logger{}, fmt.Errorf("创建日志目录失败 %q: %w", filepath.Dir(path), err)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return nil, eventLogger{}, fmt.Errorf("打开日志文件失败 %q: %w", path, err)
+		return nil, bridge.Logger{}, fmt.Errorf("打开日志文件失败 %q: %w", path, err)
 	}
-	return file, eventLogger{out: file}, nil
+	return file, bridge.NewLogger(file), nil
 }
 
 type nopCloser struct{}
