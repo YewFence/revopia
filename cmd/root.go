@@ -91,12 +91,6 @@ func addBridgeFlags(cmd *cobra.Command, opts *bridgeOptions, includeVerify bool)
 	}
 }
 
-func addRuntimeFlags(cmd *cobra.Command, opts *bridgeOptions) {
-	flags := cmd.Flags()
-	flags.StringVar(&opts.logFile, "log-file", opts.logFile, "持久日志文件路径，留空则禁用文件日志")
-	flags.DurationVar(&opts.timeout, "timeout", opts.timeout, "Docker API 调用超时时间")
-}
-
 func noArgs(commandName string) cobra.PositionalArgs {
 	return func(_ *cobra.Command, args []string) error {
 		if len(args) != 0 {

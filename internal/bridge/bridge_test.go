@@ -340,10 +340,14 @@ func TestCleanupUnmountCommandArgs(t *testing.T) {
 
 func TestCleanupUnmountContainerCreateOptions(t *testing.T) {
 	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
-	target := cleanupTarget{FriendlyName: "database"}
+	spec := cleanupUnmountSpec{
+		FriendlyName:    "database",
+		VisibleRoot:     "/volumes",
+		ContainerTarget: cleanupUnmountContainerTargetPath("database"),
+	}
 
-	options := cleanupUnmountContainerCreateOptions(cfg, CleanupOptions{}, target)
-	if options.Name != cleanupUnmountContainerName(target.FriendlyName) {
+	options := cleanupUnmountContainerCreateOptions(cfg, CleanupOptions{}, spec)
+	if options.Name != cleanupUnmountContainerName(spec.FriendlyName) {
 		t.Fatalf("container name = %q", options.Name)
 	}
 	if options.Config.Image != "alpine" {
@@ -352,7 +356,7 @@ func TestCleanupUnmountContainerCreateOptions(t *testing.T) {
 	if got := options.Config.Labels[labelMode]; got != modeCleanup {
 		t.Fatalf("mode label = %q", got)
 	}
-	if len(options.Config.Cmd) != 2 || options.Config.Cmd[0] != "umount" || options.Config.Cmd[1] != path.Join(helperTargetRoot, target.FriendlyName) {
+	if len(options.Config.Cmd) != 2 || options.Config.Cmd[0] != "umount" || options.Config.Cmd[1] != path.Join(helperTargetRoot, spec.FriendlyName) {
 		t.Fatalf("cleanup command = %v", options.Config.Cmd)
 	}
 	if options.HostConfig.NetworkMode != container.NetworkMode("none") {
@@ -388,19 +392,37 @@ func TestCleanupUnmountContainerCreateOptions(t *testing.T) {
 
 func TestCleanupUnmountContainerCreateOptionsLazy(t *testing.T) {
 	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
-	target := cleanupTarget{FriendlyName: "database"}
+	spec := cleanupUnmountSpec{
+		FriendlyName:    "database",
+		VisibleRoot:     "/volumes",
+		ContainerTarget: cleanupUnmountContainerTargetPath("database"),
+	}
 
-	options := cleanupUnmountContainerCreateOptions(cfg, CleanupOptions{LazyUnmount: true}, target)
-	wantTarget := path.Join(helperTargetRoot, target.FriendlyName)
+	options := cleanupUnmountContainerCreateOptions(cfg, CleanupOptions{LazyUnmount: true}, spec)
+	wantTarget := path.Join(helperTargetRoot, spec.FriendlyName)
 	if len(options.Config.Cmd) != 3 || options.Config.Cmd[0] != "umount" || options.Config.Cmd[1] != "-l" || options.Config.Cmd[2] != wantTarget {
 		t.Fatalf("lazy cleanup command = %v", options.Config.Cmd)
 	}
 }
 
-func TestCleanupTargetPathChecked(t *testing.T) {
-	cfg := Config{VisibleRoot: "/volumes"}
+func TestRestoreCleanupUnmountContainerTargetPath(t *testing.T) {
+	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	target := restoreCleanupTarget{FriendlyName: "database"}
+	spec := cleanupUnmountSpec{
+		FriendlyName:    target.FriendlyName,
+		VisibleRoot:     "/restore",
+		ContainerTarget: restoreCleanupContainerTargetPath(target.FriendlyName),
+	}
 
-	got, err := cleanupTargetPathChecked(cfg, "database")
+	options := cleanupUnmountContainerCreateOptions(cfg, CleanupOptions{}, spec)
+	wantTarget := path.Join(helperTargetRoot, restoreTargetSubdir, target.FriendlyName)
+	if len(options.Config.Cmd) != 2 || options.Config.Cmd[0] != "umount" || options.Config.Cmd[1] != wantTarget {
+		t.Fatalf("restore cleanup command = %v", options.Config.Cmd)
+	}
+}
+
+func TestCleanupTargetPathChecked(t *testing.T) {
+	got, err := cleanupTargetPathChecked("/volumes", "database")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +430,7 @@ func TestCleanupTargetPathChecked(t *testing.T) {
 		t.Fatalf("cleanup target path = %q", got)
 	}
 
-	if _, err := cleanupTargetPathChecked(cfg, "../database"); err == nil {
+	if _, err := cleanupTargetPathChecked("/volumes", "../database"); err == nil {
 		t.Fatal("expected escaped target path to be rejected")
 	}
 }

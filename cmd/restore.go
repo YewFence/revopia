@@ -31,6 +31,7 @@ func newRestoreCommand() *cobra.Command {
 
 func newRestoreCleanupCommand() *cobra.Command {
 	opts := newBridgeOptions(false)
+	cleanupOpts := bridge.CleanupOptions{}
 	sessionID := ""
 	assumeYes := false
 	cmd := &cobra.Command{
@@ -49,14 +50,24 @@ func newRestoreCleanupCommand() *cobra.Command {
 				}
 			}
 			return withDockerClient(cmd, opts, "restore-cleanup", func(ctx context.Context, api bridge.DockerAPI, logger bridge.Logger) error {
-				return bridge.RestoreCleanup(ctx, api, sessionID, cmd.OutOrStdout(), logger)
+				return bridge.RestoreCleanup(ctx, api, opts.cfg, cleanupOpts, sessionID, cmd.OutOrStdout(), logger)
 			})
 		},
 	}
-	addRuntimeFlags(cmd, &opts)
+	addRestoreCleanupFlags(cmd, &opts, &cleanupOpts)
 	cmd.Flags().StringVar(&sessionID, "session", sessionID, "要清理的恢复 session id")
 	cmd.Flags().BoolVarP(&assumeYes, "yes", "y", assumeYes, "跳过确认并清理恢复 helper 容器")
 	return cmd
+}
+
+func addRestoreCleanupFlags(cmd *cobra.Command, opts *bridgeOptions, cleanupOpts *bridge.CleanupOptions) {
+	flags := cmd.Flags()
+	flags.StringVar(&opts.cfg.BridgeSource, "bridge-source", opts.cfg.BridgeSource, "Docker daemon 侧的宿主机 bridge bind mount 路径，用于临时容器回收恢复挂载")
+	flags.StringVar(&opts.cfg.RestoreVisibleRoot, "restore-root", opts.cfg.RestoreVisibleRoot, "当前进程可见的恢复根路径，用于回收恢复挂载")
+	flags.StringVar(&opts.cfg.HelperImage, "helper-image", opts.cfg.HelperImage, "cleanup 容器镜像")
+	flags.StringVar(&opts.logFile, "log-file", opts.logFile, "持久日志文件路径，留空则禁用文件日志")
+	flags.DurationVar(&opts.timeout, "timeout", opts.timeout, "Docker API 调用超时时间")
+	flags.BoolVar(&cleanupOpts.LazyUnmount, "dangerously-lazy-umount", cleanupOpts.LazyUnmount, "普通 umount 失败后允许显式使用 lazy umount")
 }
 
 func addRestoreFlags(cmd *cobra.Command, opts *bridgeOptions, restoreOpts *bridge.RestoreOptions) {

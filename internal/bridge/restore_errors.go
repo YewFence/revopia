@@ -34,14 +34,6 @@ func restoreSourceVolumeMissingError() error {
 	)
 }
 
-func restoreTargetVolumeMissingError() error {
-	return withHints(
-		fmt.Errorf("target volume 不能为空"),
-		"用 --target-volume 指定新的恢复目标 volume，推荐带时间戳避免覆盖原始数据",
-		"示例 `volume-backup restore --source-volume app-data --target-volume app-data-restore-20260508-153000`",
-	)
-}
-
 func restoreSameSourceTargetError(sourceVolume string) error {
 	return withHints(
 		fmt.Errorf("默认拒绝把源 volume %q 作为恢复目标，确实要这么做时请显式传入危险参数", sourceVolume),
@@ -177,13 +169,6 @@ func restoreHelperStartError(session restoreSession, err error) error {
 		fmt.Errorf("启动恢复 helper 容器失败: %w", err),
 		restoreCleanupCommandHint(session.SessionID),
 		restoreDockerAccessHint(),
-	)
-}
-
-func restoreCleanupSessionMissingError() error {
-	return withHints(
-		fmt.Errorf("session id 不能为空"),
-		"传入 restore 输出里的 RESTORE_SESSION_ID，例如 `volume-backup restore-cleanup --session app-data-to-app-data-restore-20260508-153000`",
 	)
 }
 

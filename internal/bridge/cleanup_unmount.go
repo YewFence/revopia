@@ -24,6 +24,15 @@ type cleanupUnmountResult struct {
 	Skipped   bool
 }
 
+type cleanupUnmountSpec struct {
+	LogPrefix       string
+	FriendlyName    string
+	ContainerIDs    []string
+	Volumes         []string
+	VisibleRoot     string
+	ContainerTarget string
+}
+
 func validateCleanupFriendlyName(friendlyName string) error {
 	if friendlyName == "" {
 		return fmt.Errorf("friendly name 不能为空")
@@ -58,12 +67,23 @@ func sortedCleanupTargets(targets map[string]cleanupTarget) []cleanupTarget {
 }
 
 func cleanupUnmount(ctx context.Context, api DockerAPI, cfg Config, opts CleanupOptions, target cleanupTarget, logger Logger) (cleanupUnmountResult, error) {
-	targetPath, err := cleanupTargetPathChecked(cfg, target.FriendlyName)
+	return cleanupUnmountAt(ctx, api, cfg, opts, cleanupUnmountSpec{
+		LogPrefix:       "cleanup_umount",
+		FriendlyName:    target.FriendlyName,
+		ContainerIDs:    target.ContainerIDs,
+		Volumes:         target.Volumes,
+		VisibleRoot:     cfg.VisibleRoot,
+		ContainerTarget: cleanupUnmountContainerTargetPath(target.FriendlyName),
+	}, logger)
+}
+
+func cleanupUnmountAt(ctx context.Context, api DockerAPI, cfg Config, opts CleanupOptions, spec cleanupUnmountSpec, logger Logger) (cleanupUnmountResult, error) {
+	targetPath, err := cleanupTargetPathChecked(spec.VisibleRoot, spec.FriendlyName)
 	if err != nil {
 		return cleanupUnmountResult{}, err
 	}
 
-	logger.Printf("cleanup_umount_check friendly=%q target=%q lazy=%t", target.FriendlyName, targetPath, opts.LazyUnmount)
+	logger.Printf("%s_check friendly=%q target=%q lazy=%t", spec.LogPrefix, spec.FriendlyName, targetPath, opts.LazyUnmount)
 	info, err := os.Lstat(targetPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -77,7 +97,7 @@ func cleanupUnmount(ctx context.Context, api DockerAPI, cfg Config, opts Cleanup
 	if info.Mode()&os.ModeSymlink != 0 {
 		return cleanupUnmountResult{}, fmt.Errorf("拒绝卸载符号链接挂载点 %s", targetPath)
 	}
-	if err := cleanupRejectSymlinkEscape(cfg, targetPath); err != nil {
+	if err := cleanupRejectSymlinkEscape(spec.VisibleRoot, targetPath); err != nil {
 		return cleanupUnmountResult{}, err
 	}
 
@@ -92,10 +112,9 @@ func cleanupUnmount(ctx context.Context, api DockerAPI, cfg Config, opts Cleanup
 		}, nil
 	}
 
-	containerPath := cleanupUnmountContainerTargetPath(target.FriendlyName)
-	args := cleanupUnmountCommandArgs(opts, containerPath)
-	logger.Printf("cleanup_umount_exec friendly=%q container_target=%q command=%q args=%q mountinfo=%q", target.FriendlyName, containerPath, "umount", strings.Join(args, " "), mountInfo)
-	text, err := runCleanupUnmountContainer(ctx, api, cfg, opts, target, logger)
+	args := cleanupUnmountCommandArgs(opts, spec.ContainerTarget)
+	logger.Printf("%s_exec friendly=%q container_target=%q command=%q args=%q mountinfo=%q", spec.LogPrefix, spec.FriendlyName, spec.ContainerTarget, "umount", strings.Join(args, " "), mountInfo)
+	text, err := runCleanupUnmountContainer(ctx, api, cfg, opts, spec, logger)
 	if err != nil {
 		return cleanupUnmountResult{
 			Output: text,
@@ -108,10 +127,11 @@ func cleanupUnmount(ctx context.Context, api DockerAPI, cfg Config, opts Cleanup
 	}, nil
 }
 
-func runCleanupUnmountContainer(ctx context.Context, api DockerAPI, cfg Config, opts CleanupOptions, target cleanupTarget, logger Logger) (string, error) {
-	options := cleanupUnmountContainerCreateOptions(cfg, opts, target)
+func runCleanupUnmountContainer(ctx context.Context, api DockerAPI, cfg Config, opts CleanupOptions, spec cleanupUnmountSpec, logger Logger) (string, error) {
+	options := cleanupUnmountContainerCreateOptions(cfg, opts, spec)
 	logger.Printf(
-		"cleanup_umount_container_create name=%q image=%q cmd=%q mounts=%q cap_add=%q cap_drop=%q readonly_rootfs=%t security=%q",
+		"%s_container_create name=%q image=%q cmd=%q mounts=%q cap_add=%q cap_drop=%q readonly_rootfs=%t security=%q",
+		spec.LogPrefix,
 		options.Name,
 		cfg.HelperImage,
 		strings.Join(options.Config.Cmd, " "),
@@ -124,7 +144,7 @@ func runCleanupUnmountContainer(ctx context.Context, api DockerAPI, cfg Config, 
 
 	created, err := api.ContainerCreate(ctx, options)
 	if err != nil && (cerrdefs.IsAlreadyExists(err) || cerrdefs.IsConflict(err)) {
-		logger.Printf("cleanup_umount_container_conflict_remove name=%q error=%q", options.Name, err)
+		logger.Printf("%s_container_conflict_remove name=%q error=%q", spec.LogPrefix, options.Name, err)
 		if removeErr := removeContainer(ctx, api, options.Name); removeErr != nil {
 			return "", fmt.Errorf("清理旧 cleanup 容器 %q 失败: %w", options.Name, removeErr)
 		}
@@ -136,25 +156,25 @@ func runCleanupUnmountContainer(ctx context.Context, api DockerAPI, cfg Config, 
 		}
 		return "", fmt.Errorf("创建 cleanup 容器失败: %w", err)
 	}
-	logger.Printf("cleanup_umount_container_created id=%q name=%q", shortID(created.ID), options.Name)
+	logger.Printf("%s_container_created id=%q name=%q", spec.LogPrefix, shortID(created.ID), options.Name)
 
 	defer func() {
 		if err := removeContainer(ctx, api, created.ID); err != nil {
-			logger.Printf("cleanup_umount_container_remove_error id=%q error=%q", shortID(created.ID), err)
+			logger.Printf("%s_container_remove_error id=%q error=%q", spec.LogPrefix, shortID(created.ID), err)
 		}
 	}()
 
 	wait := api.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNextExit})
 	if _, err := api.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
-		logger.Printf("cleanup_umount_container_start_error id=%q error=%q", shortID(created.ID), err)
+		logger.Printf("%s_container_start_error id=%q error=%q", spec.LogPrefix, shortID(created.ID), err)
 		return cleanupUnmountContainerLogs(ctx, api, created.ID, logger), fmt.Errorf("启动 cleanup 容器失败: %w", err)
 	}
-	logger.Printf("cleanup_umount_container_started id=%q", shortID(created.ID))
+	logger.Printf("%s_container_started id=%q", spec.LogPrefix, shortID(created.ID))
 
 	select {
 	case err := <-wait.Error:
 		if err != nil {
-			logger.Printf("cleanup_umount_container_wait_error id=%q error=%q", shortID(created.ID), err)
+			logger.Printf("%s_container_wait_error id=%q error=%q", spec.LogPrefix, shortID(created.ID), err)
 			return cleanupUnmountContainerLogs(ctx, api, created.ID, logger), fmt.Errorf("等待 cleanup 容器退出失败: %w", err)
 		}
 	case result := <-wait.Result:
@@ -164,10 +184,10 @@ func runCleanupUnmountContainer(ctx context.Context, api DockerAPI, cfg Config, 
 			if result.Error != nil && result.Error.Message != "" {
 				err = fmt.Errorf("%w: %s", err, result.Error.Message)
 			}
-			logger.Printf("cleanup_umount_container_failed id=%q status=%d output=%q", shortID(created.ID), result.StatusCode, output)
+			logger.Printf("%s_container_failed id=%q status=%d output=%q", spec.LogPrefix, shortID(created.ID), result.StatusCode, output)
 			return output, err
 		}
-		logger.Printf("cleanup_umount_container_done id=%q output=%q", shortID(created.ID), output)
+		logger.Printf("%s_container_done id=%q output=%q", spec.LogPrefix, shortID(created.ID), output)
 		return output, nil
 	case <-ctx.Done():
 		return cleanupUnmountContainerLogs(ctx, api, created.ID, logger), ctx.Err()
@@ -176,13 +196,13 @@ func runCleanupUnmountContainer(ctx context.Context, api DockerAPI, cfg Config, 
 	return cleanupUnmountContainerLogs(ctx, api, created.ID, logger), nil
 }
 
-func cleanupUnmountContainerCreateOptions(cfg Config, opts CleanupOptions, target cleanupTarget) dockerclient.ContainerCreateOptions {
+func cleanupUnmountContainerCreateOptions(cfg Config, opts CleanupOptions, spec cleanupUnmountSpec) dockerclient.ContainerCreateOptions {
 	return dockerclient.ContainerCreateOptions{
-		Name: cleanupUnmountContainerName(target.FriendlyName),
+		Name: cleanupUnmountContainerName(spec.FriendlyName),
 		Config: &container.Config{
 			Image:           cfg.HelperImage,
-			Cmd:             cleanupUnmountCommand(opts, cleanupUnmountContainerTargetPath(target.FriendlyName)),
-			Labels:          cleanupUnmountLabels(target),
+			Cmd:             cleanupUnmountCommand(opts, spec.ContainerTarget),
+			Labels:          cleanupUnmountLabels(spec),
 			NetworkDisabled: true,
 		},
 		HostConfig: &container.HostConfig{
@@ -197,11 +217,11 @@ func cleanupUnmountContainerCreateOptions(cfg Config, opts CleanupOptions, targe
 	}
 }
 
-func cleanupUnmountLabels(target cleanupTarget) map[string]string {
+func cleanupUnmountLabels(spec cleanupUnmountSpec) map[string]string {
 	return map[string]string{
 		labelProject:      labelTrue,
 		labelMode:         modeCleanup,
-		labelFriendlyName: target.FriendlyName,
+		labelFriendlyName: spec.FriendlyName,
 	}
 }
 
@@ -243,13 +263,13 @@ func cleanupUnmountContainerLogs(ctx context.Context, api DockerAPI, containerID
 	return strings.Join(parts, "\n")
 }
 
-func cleanupTargetPath(cfg Config, friendlyName string) string {
-	root := filepath.Clean(cfg.VisibleRoot)
+func cleanupTargetPath(visibleRoot string, friendlyName string) string {
+	root := filepath.Clean(visibleRoot)
 	return filepath.Join(root, friendlyName)
 }
 
-func cleanupTargetPathChecked(cfg Config, friendlyName string) (string, error) {
-	root := filepath.Clean(cfg.VisibleRoot)
+func cleanupTargetPathChecked(visibleRoot string, friendlyName string) (string, error) {
+	root := filepath.Clean(visibleRoot)
 	target := filepath.Clean(filepath.Join(root, friendlyName))
 	rel, err := filepath.Rel(root, target)
 	if err != nil {
@@ -261,8 +281,8 @@ func cleanupTargetPathChecked(cfg Config, friendlyName string) (string, error) {
 	return target, nil
 }
 
-func cleanupRejectSymlinkEscape(cfg Config, targetPath string) error {
-	root, err := filepath.EvalSymlinks(filepath.Clean(cfg.VisibleRoot))
+func cleanupRejectSymlinkEscape(visibleRoot string, targetPath string) error {
+	root, err := filepath.EvalSymlinks(filepath.Clean(visibleRoot))
 	if err != nil {
 		return fmt.Errorf("检查 visible root 路径符号链接失败: %w", err)
 	}

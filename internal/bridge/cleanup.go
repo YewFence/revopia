@@ -85,7 +85,7 @@ func Cleanup(ctx context.Context, api DockerAPI, cfg Config, opts CleanupOptions
 	for _, target := range sortedCleanupTargets(targets) {
 		if _, blocked := blockedTargets[target.FriendlyName]; blocked {
 			logger.Printf("cleanup_umount_skip_blocked friendly=%q containers=%q", target.FriendlyName, strings.Join(target.ContainerIDs, ","))
-			errs = append(errs, fmt.Errorf("挂载点 %s 没有回收，因为对应 helper 容器没有清理完成", cleanupTargetPath(cfg, target.FriendlyName)))
+			errs = append(errs, fmt.Errorf("挂载点 %s 没有回收，因为对应 helper 容器没有清理完成", cleanupTargetPath(cfg.VisibleRoot, target.FriendlyName)))
 			pending++
 			continue
 		}
