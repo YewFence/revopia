@@ -7,6 +7,7 @@ go = "1.25"
 "npm:@semanticversion/cli" = "latest"
 # https://golangci-lint.run/
 golangci-lint = "2"
+"github:jj-vcs/jj" = "latest"
 
 [tasks.tidy]
 description = "整理 Go 模块依赖"
