@@ -22,6 +22,10 @@ run = "go get -u ./... && go mod tidy"
 description = "运行 Go 测试"
 run = "go test -v ./..."
 
+[tasks.test-e2e]
+description = "运行 Kopia Docker volume 端到端测试"
+run = "go test -tags=e2e -run TestKopiaVolumeBackupE2E -v ."
+
 [tasks.fmt]
 description = "检查 Go 代码格式"
 raw = true
