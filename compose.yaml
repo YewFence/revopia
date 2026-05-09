@@ -1,0 +1,84 @@
+name: volume-backup
+
+# 默认启动只使用官方 Kopia 镜像，volume-backup 由 install profile 写入工具卷。
+# 首次部署缺少证书时，可以在 kopia 服务 command 中临时加入 Kopia 自己的 --tls-generate-cert 参数。
+# 如果只在可信内网测试，也可以把 kopia 服务 command 里的 TLS 参数换成 --insecure。
+# 宿主机需要提前满足 Linux Docker Engine、shared bridge mount 和 docker.sock 访问这些前提。
+
+services:
+  kopia:
+    image: kopia/kopia:${KOPIA_VERSION:-latest}
+    hostname: ${KOPIA_HOSTNAME:-kopia}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${KOPIA_BIND_HOST:-127.0.0.1}:${KOPIA_BIND_PORT:-51515}:51515"
+    environment:
+      PATH: /tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      USER: ${KOPIA_OS_USER:-kopia}
+      KOPIA_PASSWORD: ${KOPIA_PASSWORD:-change-this-repository-password}
+      KOPIA_VOLUME_BRIDGE_SOURCE: /mnt/volumes-backup
+      KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT: /volumes
+      KOPIA_VOLUME_BRIDGE_RESTORE_ROOT: /restore
+      KOPIA_VOLUME_BRIDGE_LOG_FILE: /app/logs/volume-bridge.log
+      KOPIA_VOLUME_BRIDGE_HELPER_IMAGE: ${KOPIA_VOLUME_BRIDGE_HELPER_IMAGE:-alpine:latest}
+    command:
+      - server
+      - start
+      - --enable-actions
+      - --address=0.0.0.0:51515
+      # 首次启动且没有 ./data/kopia/config/tls/server.crt 和 server.key 时，临时加入下面两项让 Kopia 生成自签证书，生成后再移除。
+      # - --tls-generate-cert
+      # - --tls-generate-cert-name=${KOPIA_TLS_CERT_NAME:-127.0.0.1,localhost}
+      - --tls-cert-file=/app/config/tls/server.crt
+      - --tls-key-file=/app/config/tls/server.key
+      # 如果不需要 TLS(如内网/私网环境)，可以换成下面这一行并移除上面的 TLS 相关参数。
+      # - --insecure
+      - --server-username=${KOPIA_SERVER_USERNAME:-kopia}
+      - --server-password=${KOPIA_SERVER_PASSWORD:-change-this-ui-password}
+      - --server-control-username=${KOPIA_SERVER_CONTROL_USERNAME:-server-control}
+      - --server-control-password=${KOPIA_SERVER_CONTROL_PASSWORD:-change-this-control-password}
+    volumes:
+      - kopia-config:/app/config
+      - kopia-cache:/app/cache
+      - kopia-repository:/repository
+      - ./logs:/app/logs
+      - volume-backup-tools:/tools:ro
+      - /mnt/volumes-backup:/volumes:rshared
+      - /mnt/volumes-backup/restore:/restore:rslave
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  volume-backup-install:
+    image: alpine:latest
+    profiles:
+      - install
+    restart: "no"
+    environment:
+      VERSION: ${VERSION:-}
+      VOLUME_BACKUP_DOWNLOAD_URL: ${VOLUME_BACKUP_DOWNLOAD_URL:-}
+      VOLUME_BACKUP_SHA256: ${VOLUME_BACKUP_SHA256:-}
+    command:
+      - sh
+      - -eu
+      - -c
+      - |
+        : "$${VERSION:?set VERSION to the release version}"
+        apk add --no-cache ca-certificates curl
+        arch="$$(uname -m)"
+        case "$$arch" in
+          x86_64) artifact_arch=amd64 ;;
+          aarch64|arm64) artifact_arch=arm64 ;;
+          *) echo "unsupported architecture: $$arch" >&2; exit 1 ;;
+        esac
+        url="$${VOLUME_BACKUP_DOWNLOAD_URL:-https://github.com/yewfence/volume-backup/releases/download/$${VERSION}/volume-backup-linux-$${artifact_arch}}"
+        curl -fsSL "$$url" -o /tools/volume-backup.tmp
+        if [ -n "$${VOLUME_BACKUP_SHA256}" ]; then
+          echo "$${VOLUME_BACKUP_SHA256}  /tools/volume-backup.tmp" | sha256sum -c -
+        fi
+        chmod 0755 /tools/volume-backup.tmp
+        mv /tools/volume-backup.tmp /tools/volume-backup
+    volumes:
+      - volume-backup-tools:/tools
+
+volumes:
+  volume-backup-tools:
