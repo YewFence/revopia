@@ -1,0 +1,108 @@
+name: GitHub Actions Updates
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      update:
+        description: 自动更新并提交 GitHub Actions 版本
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    name: Update GitHub Actions
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.update)
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update action versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise run action:update:all
+
+      - name: Commit action updates
+        run: |
+          if git diff --quiet; then
+            echo "没有发现需要更新的 GitHub Actions"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows
+          git commit -m "chore: 自动更新 GitHub Actions 版本"
+          git push
+
+  check:
+    name: Check GitHub Actions
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || (github.event_name == 'workflow_dispatch' && !inputs.update)
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check action updates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mise run action:check > actions-up-report.json
+
+          mise exec -- node <<'NODE'
+          const fs = require('node:fs')
+
+          const report = JSON.parse(fs.readFileSync('actions-up-report.json', 'utf8'))
+          const updates = report.updates ?? []
+          const blockedByMode = report.blockedByMode ?? []
+          const skipped = report.skipped ?? []
+
+          const lines = [
+            '## GitHub Actions 更新检查',
+            '',
+            `状态 ${report.status}`,
+            `发现的 Action 数量 ${report.summary?.totalActions ?? 0}`,
+            `已检查的 Action 数量 ${report.summary?.totalActionsChecked ?? 0}`,
+            `可更新数量 ${updates.length}`,
+            `被模式过滤数量 ${blockedByMode.length}`,
+            `跳过数量 ${skipped.length}`,
+          ]
+
+          if (updates.length > 0) {
+            lines.push('', '| 文件 | Action | 当前版本 | 目标版本 |', '| --- | --- | --- | --- |')
+            for (const update of updates) {
+              const action = update.action ?? {}
+              const file = action.file ?? 'unknown'
+              const line = action.line ?? 1
+              const current = update.currentVersion ?? action.version ?? 'unknown'
+              const target = update.latestVersion ?? update.targetRef ?? 'unknown'
+              lines.push(`| ${file}:${line} | ${action.name ?? 'unknown'} | ${current} | ${target} |`)
+              console.error(`::error file=${file},line=${line}::${action.name ?? 'GitHub Action'} 可以从 ${current} 更新到 ${target}`)
+            }
+          }
+
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`)
+
+          if (updates.length > 0) {
+            console.error('发现过期 GitHub Actions，请运行 mise run action:update 或 mise run action:update:all 后提交变更')
+            process.exit(1)
+          }
+          NODE

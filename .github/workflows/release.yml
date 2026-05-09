@@ -1,0 +1,223 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的版本 tag"
+        required: true
+        type: string
+      overwrite_latest_tag:
+        description: "是否覆盖 latest 标签"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Resolve Version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      checkout_ref: ${{ steps.release.outputs.checkout_ref }}
+      should_release: ${{ steps.release.outputs.should_release }}
+      create_tag: ${{ steps.release.outputs.create_tag }}
+    steps:
+      - name: Ensure tag input
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.tag == '' }}
+        run: |
+          echo "tag 不能为空"
+          exit 1
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Compute semantic version
+        id: semantic
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') }}
+        uses: PaulHatch/semantic-version@9f72830310d5ed81233b641ee59253644cd8a8fc # v6.0.2
+        with:
+          tag_prefix: "v"
+          ignore_commits_pattern: '/^(?!(fix|feat|perf)(\(.+\))?!?:|[a-z]+(\(.+\))?!:).*/'
+
+      - name: Resolve explicit tag
+        id: explicit
+        if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tag="${INPUT_TAG:-${REF_NAME}}"
+          if [[ -z "${tag}" ]]; then
+            echo "tag 不能为空"
+            exit 1
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "checkout_ref=${tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          EXPLICIT_TAG: ${{ steps.explicit.outputs.tag }}
+          EXPLICIT_CHECKOUT_REF: ${{ steps.explicit.outputs.checkout_ref }}
+          SEMANTIC_TAG: ${{ steps.semantic.outputs.version_tag }}
+          SEMANTIC_CHANGED: ${{ steps.semantic.outputs.changed }}
+          SEMANTIC_TYPE: ${{ steps.semantic.outputs.version_type }}
+          SEMANTIC_IS_TAGGED: ${{ steps.semantic.outputs.is_tagged }}
+          SEMANTIC_CURRENT_COMMIT: ${{ steps.semantic.outputs.current_commit }}
+        run: |
+          tag=""
+          checkout_ref="${GITHUB_SHA}"
+          should_release="false"
+          create_tag="false"
+
+          if [[ -n "${EXPLICIT_TAG}" ]]; then
+            tag="${EXPLICIT_TAG}"
+            checkout_ref="${EXPLICIT_CHECKOUT_REF}"
+            should_release="true"
+          elif [[ "${SEMANTIC_CHANGED}" == "true" && "${SEMANTIC_TYPE}" != "none" && "${SEMANTIC_IS_TAGGED}" != "true" && -n "${SEMANTIC_TAG}" ]]; then
+            tag="${SEMANTIC_TAG}"
+            checkout_ref="${SEMANTIC_CURRENT_COMMIT:-${GITHUB_SHA}}"
+            should_release="true"
+            create_tag="true"
+          else
+            tag="${SEMANTIC_TAG}"
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "version=${tag#v}"
+            echo "checkout_ref=${checkout_ref}"
+            echo "should_release=${should_release}"
+            echo "create_tag=${create_tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build ${{ matrix.goos }} ${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    needs: version
+    if: ${{ needs.version.outputs.should_release == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: ""
+          - goos: linux
+            goarch: arm64
+            suffix: ""
+          - goos: darwin
+            goarch: amd64
+            suffix: ""
+          - goos: darwin
+            goarch: arm64
+            suffix: ""
+          - goos: windows
+            goarch: amd64
+            suffix: ".exe"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_VERSION}" -o "dist/your-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: "your-cli-${{ matrix.goos }}-${{ matrix.goarch }}"
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - version
+      - build
+    if: ${{ needs.version.outputs.should_release == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+          fetch-depth: 0
+
+      - name: Create semantic tag
+        if: ${{ needs.version.outputs.create_tag == 'true' }}
+        env:
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force
+
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            existing_commit="$(git rev-list -n 1 "${RELEASE_TAG}")"
+            current_commit="$(git rev-parse HEAD)"
+            if [[ "${existing_commit}" != "${current_commit}" ]]; then
+              echo "tag ${RELEASE_TAG} 已存在，但不指向当前提交"
+              exit 1
+            fi
+            echo "tag ${RELEASE_TAG} 已存在，跳过创建"
+          else
+            git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
+            git push origin "${RELEASE_TAG}"
+          fi
+
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          files: dist/*
+          generate_release_notes: true
+
+      - name: Move latest tag
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.overwrite_latest_tag }}
+        env:
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force
+
+          release_commit="$(git rev-list -n 1 "${RELEASE_TAG}")"
+          git tag -fa latest -m "latest -> ${RELEASE_TAG}" "${release_commit}"
+          git push --force origin refs/tags/latest
