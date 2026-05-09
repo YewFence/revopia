@@ -130,6 +130,8 @@ restore 命令必须输出它实际准备的目标路径和推荐的 `kopia snap
 
 当前的传播桥模型会让 helper 容器把 Docker volume 的挂载传播到宿主机 bridge 目录下，例如 `/mnt/volumes-backup/<friendly-name>`。实测在 Linux Docker Engine 上，删除 helper 容器后这些传播出来的子挂载可能不会自动消失，即使已经没有任何容器运行，`docker compose down -v` 或 `docker volume rm` 仍然可能因为 volume 的 `_data` 路径处于 busy 状态而失败，典型错误是 `device or resource busy`。
 
+如果用户已经遇到这个状态，可以按照 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 手动确认残留挂载、卸载 bridge 下的传播挂载，并在挂载消失后删除 Docker volume。
+
 把 helper 的 bind mount 从整个 bridge 根目录改成单个 `/mnt/volumes-backup/<friendly-name>:/bridge/<friendly-name>` 不能从根本上解决这个问题，因为问题来自 `rshared` 把子挂载传播回宿主机后的生命周期管理，而不是 bridge 根目录本身太宽。推荐继续保留传播桥模型，但把 cleanup 设计成两阶段流程，先删除本项目创建的 helper 容器，再对这些 helper 标签里记录的 friendly name 执行明确的子挂载回收。
 
 子挂载回收可以由宿主机侧 Go 进程直接执行，也可以由 Go 程序临时创建一个受控 cleanup 容器执行。如果由宿主机侧 Go 进程执行 `umount`，该进程需要在宿主机上拥有 `CAP_SYS_ADMIN`，通常意味着以 root 运行，或给可执行文件授予受控 capability。如果由 cleanup 容器执行 `umount`，容器只需要挂载同一个 bridge 目录到 `/bridge`，使用 `bind-propagation=rshared`，禁用网络，并获得卸载挂载点所需的 `CAP_SYS_ADMIN`。
