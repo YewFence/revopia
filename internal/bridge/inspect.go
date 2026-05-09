@@ -17,7 +17,7 @@ func InspectState(ctx context.Context, api DockerAPI, cfg Config, out io.Writer,
 	}
 	logger.Printf("inspect_start bridge_source=%q visible_root=%q helper_image=%q", cfg.BridgeSource, cfg.VisibleRoot, cfg.HelperImage)
 
-	rootStatus := inspectVisiblePath(cfg.VisibleRoot)
+	rootStatus := inspectVisiblePathFunc(cfg.VisibleRoot)
 	if err := writef(out, "可见根路径 %s\n", rootStatus.String()); err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func InspectState(ctx context.Context, api DockerAPI, cfg Config, out io.Writer,
 			continue
 		}
 		spec := volumeSpec{VolumeName: vol.Name, FriendlyName: friendly}
-		status := inspectVisiblePath(visiblePath(cfg, spec))
+		status := inspectVisiblePathFunc(visiblePath(cfg, spec))
 		if err := writef(out, "volume %s backup_name=%q friendly=%s helper=%s mountpoint=%s visible=%s labels=%s\n", vol.Name, vol.Labels[labelBackupName], friendly, helperContainerName(vol.Name), vol.Mountpoint, status.String(), formatLabels(vol.Labels)); err != nil {
 			return err
 		}

@@ -228,7 +228,7 @@ func waitForRestoreVisibleMount(ctx context.Context, cfg Config, session restore
 	deadline := time.Now().Add(cfg.VerifyTimeout)
 	var status visiblePathStatus
 	for {
-		status = inspectVisiblePath(session.TargetPath)
+		status = inspectVisiblePathFunc(session.TargetPath)
 		if status.Exists && status.IsMount {
 			return status, nil
 		}

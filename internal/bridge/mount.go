@@ -41,7 +41,7 @@ func waitForVisibleMount(ctx context.Context, cfg Config, spec volumeSpec, logge
 	deadline := time.Now().Add(cfg.VerifyTimeout)
 	var status visiblePathStatus
 	for {
-		status = inspectVisiblePath(visiblePath(cfg, spec))
+		status = inspectVisiblePathFunc(visiblePath(cfg, spec))
 		if status.Exists && status.IsMount {
 			return status, nil
 		}
@@ -106,6 +106,8 @@ func inspectVisiblePath(target string) visiblePathStatus {
 	}
 	return status
 }
+
+var inspectVisiblePathFunc = inspectVisiblePath
 
 func isMountPoint(target string) (bool, error) {
 	_, mounted, err := mountInfoForPath(target)
