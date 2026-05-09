@@ -3,7 +3,7 @@ name: volume-backup
 # 默认启动只使用官方 Kopia 镜像，volume-backup 由 install profile 写入工具卷。
 # 首次部署缺少证书时，可以在 kopia 服务 command 中临时加入 Kopia 自己的 --tls-generate-cert 参数。
 # 如果只在可信内网测试，也可以把 kopia 服务 command 里的 TLS 参数换成 --insecure。
-# 宿主机需要提前满足 Linux Docker Engine、shared bridge mount 和 docker.sock 访问这些前提。
+# 宿主机需要提前满足 Linux Docker Engine、shared bridge mount 和 docker.sock proxy 访问这些前提。
 
 services:
   kopia:
@@ -11,11 +11,17 @@ services:
     hostname: ${KOPIA_HOSTNAME:-kopia}
     restart: unless-stopped
     init: true
+    depends_on:
+      - docker-socket-proxy
+    networks:
+      - default
+      - docker-api
     ports:
       - "${KOPIA_BIND_HOST:-127.0.0.1}:${KOPIA_BIND_PORT:-51515}:51515"
     environment:
       PATH: /tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       USER: ${KOPIA_OS_USER:-kopia}
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
       KOPIA_PASSWORD: ${KOPIA_PASSWORD:-change-this-repository-password}
       KOPIA_VOLUME_BRIDGE_SOURCE: /mnt/volumes-backup
       KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT: /volumes
@@ -46,6 +52,23 @@ services:
       - volume-backup-tools:/tools:ro
       - /mnt/volumes-backup:/volumes:rshared
       - /mnt/volumes-backup/restore:/restore:rslave
+
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_VERSION:-v0.4.2}
+    restart: unless-stopped
+    privileged: true
+    networks:
+      - docker-api
+    environment:
+      LOG_LEVEL: ${DOCKER_SOCKET_PROXY_LOG_LEVEL:-info}
+      DISABLE_IPV6: "1"
+      EVENTS: "0"
+      PING: "1"
+      VERSION: "1"
+      POST: "1"
+      CONTAINERS: "1"
+      VOLUMES: "1"
+    volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
   volume-backup-install:
@@ -80,5 +103,12 @@ services:
     volumes:
       - volume-backup-tools:/tools
 
+networks:
+  docker-api:
+    internal: true
+
 volumes:
+  kopia-config:
+  kopia-cache:
+  kopia-repository:
   volume-backup-tools:
