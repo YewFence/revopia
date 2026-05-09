@@ -93,11 +93,11 @@ docker volume create db-data \
 ## 部署 Kopia
 
 > 以下的代码使用了 `alias` 以简化操作。如果你使用了 Mise 且已经 Activate，`alias` 会自动加载，详见 [mise.toml](mise.toml)。
-> ```bash
-> alias kopia = "docker compose exec -T kopia kopia"
-> alias exec-kopia = "docker compose exec kopia"
-> alias revopia = "docker compose exec -T kopia revopia"
-> ```
+```bash
+alias kopia="docker compose exec -T kopia kopia"
+alias exec-kopia="docker compose exec kopia"
+alias revopia="docker compose exec -T kopia revopia"
+```
 
 仓库里的 `compose.yaml` 是生产方向的参考配置。它通过 `docker-socket-proxy` 暴露有限 Docker API 给 Kopia 容器，默认把宿主机的 `/mnt/revopia` 挂到 `/volumes`，把 `/mnt/revopia/restore` 挂到 `/restore`。这个 bridge 路径不需要提前手动创建或重新挂载，Docker 会在 compose bind mount 和 helper bind mount 阶段处理它。
 
@@ -134,7 +134,7 @@ kopia snapshot list /volumes
 ```bash
 # kopia 无法快照不存在的目录，所以需要预先创建空目录，挂载点会覆盖它
 exec-kopia mkdir -p /volumes/app-data
-kopia kopia snapshot create /volumes/app-data
+kopia snapshot create /volumes/app-data
 ```
 
 ## 恢复数据

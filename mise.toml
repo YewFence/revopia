@@ -62,3 +62,4 @@ run = "go run ."
 [shell_alias]
 kopia = "docker compose exec -T kopia kopia"
 revopia = "docker compose exec -T kopia revopia"
+exec-kopia = "docker compose exec kopia"
