@@ -12,7 +12,7 @@ func newVersionCommand() *cobra.Command {
 		Short: "Print version information",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "volume-backup %s\n", appVersion)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "revopia %s\n", appVersion)
 			return err
 		},
 	}

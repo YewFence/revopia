@@ -1,6 +1,6 @@
 package main
 
-import "github.com/yewfence/volume-backup/cmd"
+import "github.com/yewfence/revopia/cmd"
 
 var version = "dev"
 

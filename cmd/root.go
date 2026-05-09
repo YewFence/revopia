@@ -11,7 +11,7 @@ import (
 
 	dockerclient "github.com/moby/moby/client"
 	"github.com/spf13/cobra"
-	"github.com/yewfence/volume-backup/internal/bridge"
+	"github.com/yewfence/revopia/internal/bridge"
 )
 
 const (
@@ -31,7 +31,7 @@ var rootCmd = newRootCommand()
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "volume-backup",
+		Use:           "revopia",
 		Short:         "Kopia Docker volume bridge",
 		Long:          "Kopia Docker volume bridge exposes labeled Docker volumes through a propagation bridge for Kopia.",
 		SilenceUsage:  true,
@@ -127,10 +127,10 @@ func withDockerClient(cmd *cobra.Command, opts bridgeOptions, commandName string
 }
 
 func defaultLogFile() string {
-	if value := strings.TrimSpace(os.Getenv("KOPIA_VOLUME_BRIDGE_LOG_FILE")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("REVOPIA_LOG_FILE")); value != "" {
 		return value
 	}
-	return "/app/logs/volume-bridge.log"
+	return "/app/logs/revopia.log"
 }
 
 func openCommandLog(path string) (io.Closer, bridge.Logger, error) {

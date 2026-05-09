@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/yewfence/volume-backup/internal/bridge"
+	"github.com/yewfence/revopia/internal/bridge"
 )
 
 type hintedError struct {

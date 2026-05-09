@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
-	"github.com/yewfence/volume-backup/internal/bridge"
+	"github.com/yewfence/revopia/internal/bridge"
 )
 
 func newInspectCommand() *cobra.Command {

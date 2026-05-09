@@ -8,7 +8,7 @@ import (
 func restoreBridgeSourceMissingError() error {
 	return withHints(
 		fmt.Errorf("bridge source 不能为空"),
-		"用 --bridge-source 指定宿主机传播桥路径，常见值是 /mnt/volumes-backup",
+		"用 --bridge-source 指定宿主机传播桥路径，常见值是 /mnt/revopia",
 	)
 }
 
@@ -46,7 +46,7 @@ func restoreUnsafeSessionIDError(opts RestoreOptions) error {
 	return withHints(
 		fmt.Errorf("session id %q 不是路径安全名称", opts.SessionID),
 		"session id 只能使用路径安全字符，建议只用字母、数字、点、下划线和短横线",
-		fmt.Sprintf("可以直接省略 --session，让程序自动生成，例如 `volume-backup restore --source-volume %s --target-volume %s`", shellArg(opts.SourceVolume), shellArg(opts.TargetVolume)),
+		fmt.Sprintf("可以直接省略 --session，让程序自动生成，例如 `revopia restore --source-volume %s --target-volume %s`", shellArg(opts.SourceVolume), shellArg(opts.TargetVolume)),
 	)
 }
 
@@ -197,7 +197,7 @@ func restorePropagationHint(cfg Config) string {
 }
 
 func restoreCleanupCommandHint(sessionID string) string {
-	return fmt.Sprintf("恢复会话可以用 `volume-backup restore-cleanup --session %s` 清理，目标 volume 不会被删除", shellArg(sessionID))
+	return fmt.Sprintf("恢复会话可以用 `revopia restore-cleanup --session %s` 清理，目标 volume 不会被删除", shellArg(sessionID))
 }
 
 func shellArg(value string) string {

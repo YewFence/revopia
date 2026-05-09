@@ -27,12 +27,12 @@ import (
 const (
 	e2eKopiaImage   = "kopia/kopia:unstable"
 	e2eHelperImage  = "alpine:latest"
-	e2eBeforeAction = "volume-backup prepare"
-	e2eAfterAction  = "volume-backup cleanup"
+	e2eBeforeAction = "revopia prepare"
+	e2eAfterAction  = "revopia cleanup"
 	e2eSeedReadme   = "cache volume ready\n"
 )
 
-func TestKopiaVolumeBackupE2E(t *testing.T) {
+func TestRevopiaE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -47,17 +47,17 @@ func TestKopiaVolumeBackupE2E(t *testing.T) {
 		t.Skipf("Docker daemon 不可用，跳过 e2e 测试: %v", err)
 	}
 
-	project := "volume-backup-e2e-" + randomHex(t, 6)
+	project := "revopia-e2e-" + randomHex(t, 6)
 	bridgeSource := filepath.Join(os.TempDir(), project, "bridge")
 	logDir := filepath.Join(os.TempDir(), project, "logs")
-	binPath := filepath.Join(os.TempDir(), project, "volume-backup")
+	binPath := filepath.Join(os.TempDir(), project, "revopia")
 	mustMkdir(t, bridgeSource)
 	mustMkdir(t, logDir)
 	t.Cleanup(func() {
 		_ = os.RemoveAll(filepath.Join(os.TempDir(), project))
 	})
 
-	buildVolumeBackup(t, ctx, binPath)
+	buildRevopia(t, ctx, binPath)
 
 	cacheVolume := project + "-test-cache-data"
 	kopiaConfigVolume := project + "-kopia-config"
@@ -90,12 +90,12 @@ func TestKopiaVolumeBackupE2E(t *testing.T) {
 			Hostname:     "kopia-e2e",
 			ExposedPorts: []string{"51515/tcp"},
 			Env: map[string]string{
-				"KOPIA_PASSWORD":                   "kopia",
-				"USER":                             "kopia",
-				"KOPIA_VOLUME_BRIDGE_LOG_FILE":     "/app/logs/volume-bridge.log",
-				"KOPIA_VOLUME_BRIDGE_SOURCE":       bridgeSource,
-				"KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT": "/volumes",
-				"KOPIA_VOLUME_BRIDGE_HELPER_IMAGE": e2eHelperImage,
+				"KOPIA_PASSWORD":        "kopia",
+				"USER":                  "kopia",
+				"REVOPIA_LOG_FILE":      "/app/logs/revopia.log",
+				"REVOPIA_BRIDGE_SOURCE": bridgeSource,
+				"REVOPIA_VISIBLE_ROOT":  "/volumes",
+				"REVOPIA_HELPER_IMAGE":  e2eHelperImage,
 			},
 			Cmd: []string{
 				"server",
@@ -115,7 +115,7 @@ func TestKopiaVolumeBackupE2E(t *testing.T) {
 					mount.Mount{Type: mount.TypeVolume, Source: kopiaDataVolume, Target: "/app/data"},
 					mount.Mount{Type: mount.TypeBind, Source: logDir, Target: "/app/logs"},
 					mount.Mount{Type: mount.TypeBind, Source: "/var/run/docker.sock", Target: "/var/run/docker.sock"},
-					mount.Mount{Type: mount.TypeBind, Source: binPath, Target: "/bin/volume-backup", ReadOnly: true},
+					mount.Mount{Type: mount.TypeBind, Source: binPath, Target: "/bin/revopia", ReadOnly: true},
 					mount.Mount{
 						Type:   mount.TypeBind,
 						Source: bridgeSource,
@@ -133,7 +133,7 @@ func TestKopiaVolumeBackupE2E(t *testing.T) {
 		t.Fatalf("启动 Kopia 容器失败: %v", err)
 	}
 	t.Cleanup(func() {
-		runFinalVolumeBackupCleanup(t, kopia)
+		runFinalRevopiaCleanup(t, kopia)
 	})
 
 	kopiaExec(t, ctx, kopia, "repository", "create", "filesystem", "--path=/app/data", "--enable-actions")
@@ -147,7 +147,7 @@ func TestKopiaVolumeBackupE2E(t *testing.T) {
 		"/volumes",
 		// 这里直接走 argv，不经过 shell，所以不要把引号字符传进去。
 		// 这个字符串本身就等价于 shell 中的
-		// --before-snapshot-root-action="volume-backup prepare"
+		// --before-snapshot-root-action="revopia prepare"
 		"--before-snapshot-root-action="+e2eBeforeAction,
 		"--after-snapshot-root-action="+e2eAfterAction,
 		"--one-file-system=false",
@@ -171,7 +171,7 @@ func TestKopiaVolumeBackupE2E(t *testing.T) {
 		Policy:               policy,
 		FullSnapshotCreate:   fullSnapshotCreate,
 		SingleSnapshotCreate: singleSnapshotCreate,
-		BridgeLog:            readOptionalContainerFile(t, ctx, kopia, "/app/logs/volume-bridge.log"),
+		BridgeLog:            readOptionalContainerFile(t, ctx, kopia, "/app/logs/revopia.log"),
 	}
 	assertRestoredFile(t, ctx, kopia, path.Join("/volumes", friendlyVolumeName), "/tmp/restore-single-"+project, "README.txt", e2eSeedReadme, singleSnapshotList, debug)
 	assertRestoredFile(t, ctx, kopia, "/volumes", "/tmp/restore-full-"+project, path.Join(friendlyVolumeName, "README.txt"), e2eSeedReadme, fullSnapshotList, debug)
@@ -207,34 +207,34 @@ func assertPolicyActions(t *testing.T, policy string) {
 	}
 }
 
-func runFinalVolumeBackupCleanup(t *testing.T, ctr testcontainers.Container) {
+func runFinalRevopiaCleanup(t *testing.T, ctr testcontainers.Container) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	exitCode, output, err := containerExecResultNoFatal(ctx, ctr, "volume-backup", "cleanup")
+	exitCode, output, err := containerExecResultNoFatal(ctx, ctr, "revopia", "cleanup")
 	if err != nil {
-		t.Logf("最终 volume-backup cleanup 执行失败: %v", err)
+		t.Logf("最终 revopia cleanup 执行失败: %v", err)
 		return
 	}
 	if exitCode != 0 {
-		t.Logf("最终 volume-backup cleanup 退出码为 %d\n%s", exitCode, output)
+		t.Logf("最终 revopia cleanup 退出码为 %d\n%s", exitCode, output)
 		return
 	}
 	if strings.TrimSpace(output) != "" {
-		t.Logf("最终 volume-backup cleanup 输出:\n%s", output)
+		t.Logf("最终 revopia cleanup 输出:\n%s", output)
 	}
 }
 
-func buildVolumeBackup(t *testing.T, ctx context.Context, binPath string) {
+func buildRevopia(t *testing.T, ctx context.Context, binPath string) {
 	t.Helper()
 
 	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-ldflags=-s -w -X main.version=e2e", "-o", binPath, ".")
 	cmd.Dir = "."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("构建 volume-backup 失败\n%s\n%v", output, err)
+		t.Fatalf("构建 revopia 失败\n%s\n%v", output, err)
 	}
 }
 
@@ -268,8 +268,8 @@ func removeProjectBridgeHelpers(t *testing.T, ctx context.Context, docker *docke
 	result, err := docker.ContainerList(ctx, dockerclient.ContainerListOptions{
 		All: true,
 		Filters: make(dockerclient.Filters).
-			Add("label", "kopia.volume-bridge=true").
-			Add("label", "kopia.volume-bridge.volume="+volumeName),
+			Add("label", "revopia=true").
+			Add("label", "revopia.volume="+volumeName),
 	})
 	if err != nil {
 		t.Logf("查询测试 helper 容器失败: %v", err)
@@ -379,7 +379,7 @@ func assertNoBridgeHelpers(t *testing.T, ctx context.Context, docker *dockerclie
 
 	result, err := docker.ContainerList(ctx, dockerclient.ContainerListOptions{
 		All:     true,
-		Filters: make(dockerclient.Filters).Add("label", "kopia.volume-bridge=true"),
+		Filters: make(dockerclient.Filters).Add("label", "revopia=true"),
 	})
 	if err != nil {
 		t.Fatalf("查询 bridge helper 容器失败: %v", err)

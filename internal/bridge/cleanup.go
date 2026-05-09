@@ -22,7 +22,7 @@ func Cleanup(ctx context.Context, api DockerAPI, cfg Config, opts CleanupOptions
 	if strings.TrimSpace(cfg.BridgeSource) == "" {
 		return withHints(
 			fmt.Errorf("bridge source 不能为空"),
-			"用 --bridge-source 指定 Docker daemon 侧的宿主机传播桥路径，常见值是 /mnt/volumes-backup",
+			"用 --bridge-source 指定 Docker daemon 侧的宿主机传播桥路径，常见值是 /mnt/revopia",
 		)
 	}
 	if strings.TrimSpace(cfg.VisibleRoot) == "" {

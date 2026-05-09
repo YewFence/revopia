@@ -88,7 +88,7 @@ func InspectState(ctx context.Context, api DockerAPI, cfg Config, out io.Writer,
 	}
 	logger.Printf("inspect_helper_list count=%d", len(helpers))
 	if len(helpers) == 0 {
-		if err := writeLine(out, "没有发现 kopia.volume-bridge=true 的 helper 容器"); err != nil {
+		if err := writeLine(out, "没有发现 revopia=true 的 helper 容器"); err != nil {
 			return err
 		}
 	}

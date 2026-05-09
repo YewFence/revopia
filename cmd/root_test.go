@@ -57,7 +57,7 @@ func TestVersionCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute version: %v", err)
 	}
-	if got != "volume-backup test-version\n" {
+	if got != "revopia test-version\n" {
 		t.Fatalf("version output = %q", got)
 	}
 }
@@ -114,7 +114,7 @@ func TestCompletionCommand(t *testing.T) {
 	if err := cmd.GenBashCompletionV2(buffer, true); err != nil {
 		t.Fatalf("generate bash completion: %v", err)
 	}
-	if got := buffer.String(); !strings.Contains(got, "# bash completion V2 for volume-backup") {
-		t.Fatalf("completion output = %q, want volume-backup header", got)
+	if got := buffer.String(); !strings.Contains(got, "# bash completion V2 for revopia") {
+		t.Fatalf("completion output = %q, want revopia header", got)
 	}
 }

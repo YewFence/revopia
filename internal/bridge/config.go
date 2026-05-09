@@ -13,16 +13,16 @@ const (
 	labelBackupEnable = "backup.enable"
 	labelBackupName   = "backup.name"
 
-	labelProject       = "kopia.volume-bridge"
-	labelVolume        = "kopia.volume-bridge.volume"
-	labelFriendlyName  = "kopia.volume-bridge.name"
-	labelMode          = "kopia.volume-bridge.mode"
-	labelSession       = "kopia.volume-bridge.session"
-	labelSourceVolume  = "kopia.volume-bridge.source-volume"
-	labelTargetVolume  = "kopia.volume-bridge.target-volume"
-	labelCreatedAt     = "kopia.volume-bridge.created-at"
-	labelCreatedBy     = "kopia.volume-bridge.created-by"
-	labelRestoreTarget = "kopia.volume-bridge.restore-target"
+	labelProject       = "revopia"
+	labelVolume        = "revopia.volume"
+	labelFriendlyName  = "revopia.name"
+	labelMode          = "revopia.mode"
+	labelSession       = "revopia.session"
+	labelSourceVolume  = "revopia.source-volume"
+	labelTargetVolume  = "revopia.target-volume"
+	labelCreatedAt     = "revopia.created-at"
+	labelCreatedBy     = "revopia.created-by"
+	labelRestoreTarget = "revopia.restore-target"
 
 	labelTrue = "true"
 
@@ -30,9 +30,9 @@ const (
 	modeRestore = "restore"
 	modeCleanup = "cleanup"
 
-	helperNamePrefix         = "kopia-volume-bridge-"
-	restoreHelperNamePrefix  = "kopia-volume-restore-bridge-"
-	cleanupUnmountNamePrefix = "kopia-volume-cleanup-umount-"
+	helperNamePrefix         = "revopia-"
+	restoreHelperNamePrefix  = "revopia-restore-bridge-"
+	cleanupUnmountNamePrefix = "revopia-cleanup-umount-"
 	helperTargetRoot         = "/bridge"
 	restoreTargetSubdir      = "restore"
 	defaultVerifyTimeout     = 5 * time.Second
@@ -95,10 +95,10 @@ type restoreSession struct {
 
 func DefaultConfig() Config {
 	return Config{
-		BridgeSource:       getenvDefault("KOPIA_VOLUME_BRIDGE_SOURCE", "/mnt/volumes-backup"),
-		VisibleRoot:        getenvDefault("KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT", "/volumes"),
-		RestoreVisibleRoot: getenvDefault("KOPIA_VOLUME_BRIDGE_RESTORE_ROOT", "/restore"),
-		HelperImage:        getenvDefault("KOPIA_VOLUME_BRIDGE_HELPER_IMAGE", "alpine"),
+		BridgeSource:       getenvDefault("REVOPIA_BRIDGE_SOURCE", "/mnt/revopia"),
+		VisibleRoot:        getenvDefault("REVOPIA_VISIBLE_ROOT", "/volumes"),
+		RestoreVisibleRoot: getenvDefault("REVOPIA_RESTORE_ROOT", "/restore"),
+		HelperImage:        getenvDefault("REVOPIA_HELPER_IMAGE", "alpine"),
 		VerifyTimeout:      defaultVerifyTimeout,
 	}
 }

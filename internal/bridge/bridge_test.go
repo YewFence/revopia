@@ -83,7 +83,7 @@ func TestHelperContainerNameIsStableAndOpaque(t *testing.T) {
 }
 
 func TestHelperCreateOptions(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", HelperImage: "alpine"}
 	spec := volumeSpec{VolumeName: "db-data", FriendlyName: "database"}
 
 	options := helperCreateOptions(cfg, spec)
@@ -108,7 +108,7 @@ func TestHelperCreateOptions(t *testing.T) {
 }
 
 func TestHelperMatches(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", HelperImage: "alpine"}
 	spec := volumeSpec{VolumeName: "db-data", FriendlyName: "database"}
 	options := helperCreateOptions(cfg, spec)
 
@@ -139,7 +139,7 @@ func TestHelperMatches(t *testing.T) {
 }
 
 func TestRestoreHelperCreateOptions(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
 	session := restoreSession{
 		SourceVolume: "db-data",
 		TargetVolume: "db-data-restore",
@@ -166,7 +166,7 @@ func TestRestoreHelperCreateOptions(t *testing.T) {
 }
 
 func TestRestoreHelperMatches(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
 	session := restoreSession{
 		SourceVolume: "db-data",
 		TargetVolume: "db-data-restore",
@@ -202,7 +202,7 @@ func TestRestoreHelperMatches(t *testing.T) {
 }
 
 func TestValidateRestoreInputsRejectsUnsafeDefaults(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", RestoreVisibleRoot: "/restore", HelperImage: "alpine"}
 	err := validateRestoreInputs(cfg, RestoreOptions{
 		SourceVolume: "db-data",
 		TargetVolume: "db-data",
@@ -339,7 +339,7 @@ func TestCleanupUnmountCommandArgs(t *testing.T) {
 }
 
 func TestCleanupUnmountContainerCreateOptions(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", HelperImage: "alpine"}
 	spec := cleanupUnmountSpec{
 		FriendlyName:    "database",
 		VisibleRoot:     "/volumes",
@@ -391,7 +391,7 @@ func TestCleanupUnmountContainerCreateOptions(t *testing.T) {
 }
 
 func TestCleanupUnmountContainerCreateOptionsLazy(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", HelperImage: "alpine"}
 	spec := cleanupUnmountSpec{
 		FriendlyName:    "database",
 		VisibleRoot:     "/volumes",
@@ -406,7 +406,7 @@ func TestCleanupUnmountContainerCreateOptionsLazy(t *testing.T) {
 }
 
 func TestRestoreCleanupUnmountContainerTargetPath(t *testing.T) {
-	cfg := Config{BridgeSource: "/mnt/volumes-backup", HelperImage: "alpine"}
+	cfg := Config{BridgeSource: "/mnt/revopia", HelperImage: "alpine"}
 	target := restoreCleanupTarget{FriendlyName: "database"}
 	spec := cleanupUnmountSpec{
 		FriendlyName:    target.FriendlyName,

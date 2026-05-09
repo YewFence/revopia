@@ -7,17 +7,17 @@ services:
     environment:
       KOPIA_PASSWORD: kopia
       USER: kopia
-      KOPIA_VOLUME_BRIDGE_LOG_FILE: /app/logs/volume-bridge.log
-      KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT: /volumes
+      REVOPIA_LOG_FILE: /app/logs/revopia.log
+      REVOPIA_VISIBLE_ROOT: /volumes
     volumes:
       - kopia-config:/app/config
       - kopia-cache:/app/cache
       - ./logs:/app/logs
       - kopia-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
-      - /mnt/volumes-backup:/volumes:rshared
-      - /mnt/volumes-backup/restore:/restore:rslave
-      - ./bin/volume-backup:/bin/volume-backup
+      - /mnt/revopia:/volumes:rshared
+      - /mnt/revopia/restore:/restore:rslave
+      - ./bin/revopia:/bin/revopia
     stdin_open: true
     tty: true
     command:

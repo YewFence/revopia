@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository contains a Go command-line tool for bridging Docker volumes into Kopia. The module is `github.com/yewfence/volume-backup`. `main.go` wires the executable to the Cobra command tree in `cmd/`. Command implementations, Docker bridge logic, restore flows, hints, and tests live in `cmd/`. `compose.yml` starts Kopia and seed test volumes for local integration work. Tool versions and repeatable tasks are defined in `mise.toml`. Build output belongs in `bin/`, and generated logs belong in `logs/`.
+This repository contains a Go command-line tool for bridging Docker volumes into Kopia. The module is `github.com/yewfence/revopia`. `main.go` wires the executable to the Cobra command tree in `cmd/`. Command implementations, Docker bridge logic, restore flows, hints, and tests live in `cmd/`. `compose.yml` starts Kopia and seed test volumes for local integration work. Tool versions and repeatable tasks are defined in `mise.toml`. Build output belongs in `bin/`, and generated logs belong in `logs/`.
 
 ## Build, Test, and Development Commands
 
@@ -15,7 +15,7 @@ mise run check
 mise run run -- --help
 ```
 
-`mise run test` runs `go test -v ./...`. `mise run build` creates `bin/volume-backup` with the development version string. `mise run check` runs formatting checks, `go vet`, build, and lint. `mise run run` starts the CLI through `go run .`. Run `mise run tidy` after dependency changes.
+`mise run test` runs `go test -v ./...`. `mise run build` creates `bin/revopia` with the development version string. `mise run check` runs formatting checks, `go vet`, build, and lint. `mise run run` starts the CLI through `go run .`. Run `mise run tidy` after dependency changes.
 
 ## Coding Style & Naming Conventions
 
@@ -31,4 +31,4 @@ Recent history uses short Conventional Commit style messages such as `feat: rest
 
 ## Security & Configuration Tips
 
-This tool talks to the Docker daemon and may mount Docker volumes. Do not commit real repository credentials, Kopia passwords, generated logs, or local backup data. Treat `compose.yml` credentials as development-only defaults. Be careful with `/var/run/docker.sock`, `/mnt/volumes-backup`, `/volumes`, and restore targets because mistakes can expose or overwrite data.
+This tool talks to the Docker daemon and may mount Docker volumes. Do not commit real repository credentials, Kopia passwords, generated logs, or local backup data. Treat `compose.yml` credentials as development-only defaults. Be careful with `/var/run/docker.sock`, `/mnt/revopia`, `/volumes`, and restore targets because mistakes can expose or overwrite data.

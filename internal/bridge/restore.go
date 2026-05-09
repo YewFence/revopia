@@ -152,7 +152,7 @@ func restoreTargetVolumeLabels(session restoreSession) map[string]string {
 		labelFriendlyName:  session.FriendlyName,
 		labelRestoreTarget: labelTrue,
 		labelCreatedAt:     time.Now().UTC().Format(time.RFC3339),
-		labelCreatedBy:     "volume-backup/" + appVersion,
+		labelCreatedBy:     "revopia/" + appVersion,
 	}
 }
 
@@ -196,7 +196,7 @@ func ensureVolumeEmpty(ctx context.Context, api DockerAPI, cfg Config, session r
 }
 
 func emptyCheckContainerCreateOptions(cfg Config, session restoreSession) dockerclient.ContainerCreateOptions {
-	name := "kopia-volume-restore-empty-check-" + hashString(session.SessionID+":"+session.TargetVolume)
+	name := "revopia-restore-empty-check-" + hashString(session.SessionID+":"+session.TargetVolume)
 	return dockerclient.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{

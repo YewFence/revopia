@@ -1,6 +1,6 @@
-name: volume-backup
+name: revopia
 
-# 默认启动只使用官方 Kopia 镜像，volume-backup 由 install profile 写入工具卷。
+# 默认启动只使用官方 Kopia 镜像，revopia 由 install profile 写入工具卷。
 # 首次部署缺少证书时，可以在 kopia 服务 command 中临时加入 Kopia 自己的 --tls-generate-cert 参数。
 # 如果只在可信内网测试，也可以把 kopia 服务 command 里的 TLS 参数换成 --insecure。
 # 宿主机需要提前满足 Linux Docker Engine、shared bridge mount 和 docker.sock proxy 访问这些前提。
@@ -23,11 +23,11 @@ services:
       USER: ${KOPIA_OS_USER:-kopia}
       DOCKER_HOST: tcp://docker-socket-proxy:2375
       KOPIA_PASSWORD: ${KOPIA_PASSWORD:-change-this-repository-password}
-      KOPIA_VOLUME_BRIDGE_SOURCE: /mnt/volumes-backup
-      KOPIA_VOLUME_BRIDGE_VISIBLE_ROOT: /volumes
-      KOPIA_VOLUME_BRIDGE_RESTORE_ROOT: /restore
-      KOPIA_VOLUME_BRIDGE_LOG_FILE: /app/logs/volume-bridge.log
-      KOPIA_VOLUME_BRIDGE_HELPER_IMAGE: ${KOPIA_VOLUME_BRIDGE_HELPER_IMAGE:-alpine:latest}
+      REVOPIA_BRIDGE_SOURCE: /mnt/revopia
+      REVOPIA_VISIBLE_ROOT: /volumes
+      REVOPIA_RESTORE_ROOT: /restore
+      REVOPIA_LOG_FILE: /app/logs/revopia.log
+      REVOPIA_HELPER_IMAGE: ${REVOPIA_HELPER_IMAGE:-alpine:latest}
     command:
       - server
       - start
@@ -49,9 +49,9 @@ services:
       - kopia-cache:/app/cache
       - kopia-repository:/repository
       - ./logs:/app/logs
-      - volume-backup-tools:/tools:ro
-      - /mnt/volumes-backup:/volumes:rshared
-      - /mnt/volumes-backup/restore:/restore:rslave
+      - revopia-tools:/tools:ro
+      - /mnt/revopia:/volumes:rshared
+      - /mnt/revopia/restore:/restore:rslave
 
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_VERSION:-v0.4.2}
@@ -71,15 +71,15 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
-  volume-backup-install:
+  revopia-install:
     image: alpine:latest
     profiles:
       - install
     restart: "no"
     environment:
       VERSION: ${VERSION:-}
-      VOLUME_BACKUP_DOWNLOAD_URL: ${VOLUME_BACKUP_DOWNLOAD_URL:-}
-      VOLUME_BACKUP_SHA256: ${VOLUME_BACKUP_SHA256:-}
+      REVOPIA_DOWNLOAD_URL: ${REVOPIA_DOWNLOAD_URL:-}
+      REVOPIA_SHA256: ${REVOPIA_SHA256:-}
     command:
       - sh
       - -eu
@@ -93,15 +93,15 @@ services:
           aarch64|arm64) artifact_arch=arm64 ;;
           *) echo "unsupported architecture: $$arch" >&2; exit 1 ;;
         esac
-        url="$${VOLUME_BACKUP_DOWNLOAD_URL:-https://github.com/yewfence/volume-backup/releases/download/$${VERSION}/volume-backup-linux-$${artifact_arch}}"
-        curl -fsSL "$$url" -o /tools/volume-backup.tmp
-        if [ -n "$${VOLUME_BACKUP_SHA256}" ]; then
-          echo "$${VOLUME_BACKUP_SHA256}  /tools/volume-backup.tmp" | sha256sum -c -
+        url="$${REVOPIA_DOWNLOAD_URL:-https://github.com/yewfence/revopia/releases/download/$${VERSION}/revopia-linux-$${artifact_arch}}"
+        curl -fsSL "$$url" -o /tools/revopia.tmp
+        if [ -n "$${REVOPIA_SHA256}" ]; then
+          echo "$${REVOPIA_SHA256}  /tools/revopia.tmp" | sha256sum -c -
         fi
-        chmod 0755 /tools/volume-backup.tmp
-        mv /tools/volume-backup.tmp /tools/volume-backup
+        chmod 0755 /tools/revopia.tmp
+        mv /tools/revopia.tmp /tools/revopia
     volumes:
-      - volume-backup-tools:/tools
+      - revopia-tools:/tools
 
 networks:
   docker-api:
@@ -111,4 +111,4 @@ volumes:
   kopia-config:
   kopia-cache:
   kopia-repository:
-  volume-backup-tools:
+  revopia-tools:

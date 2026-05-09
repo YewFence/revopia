@@ -8,7 +8,7 @@ Go 程序不负责组织 Kopia 的备份计划，也不主动调用 `kopia snaps
 
 ## 推荐模型
 
-推荐使用一个宿主机 bind mount 目录作为挂载传播桥，例如 `/mnt/volumes-backup`，并把它挂到 Kopia 容器中的 `/volumes`。
+推荐使用一个宿主机 bind mount 目录作为挂载传播桥，例如 `/mnt/revopia`，并把它挂到 Kopia 容器中的 `/volumes`。
 
 Kopia 容器只读取 `/volumes/<name>`，其中 `<name>` 来自 volume 的 `backup.name` 标签。如果该标签为空，则回退到 volume 名称经过清洗后的结果。
 
@@ -18,10 +18,10 @@ helper 容器的挂载结构如下。
 
 ```bash
 docker run --rm -d \
-  --name kopia-volume-bridge-<hash> \
-  --label kopia.volume-bridge=true \
-  --label kopia.volume-bridge.volume=<volume-name> \
-  --mount type=bind,source=/mnt/volumes-backup,target=/bridge,bind-propagation=rshared \
+  --name revopia-<hash> \
+  --label revopia=true \
+  --label revopia.volume=<volume-name> \
+  --mount type=bind,source=/mnt/revopia,target=/bridge,bind-propagation=rshared \
   --mount type=volume,source=<volume-name>,target=/bridge/<friendly-name>,readonly \
   alpine sleep infinity
 ```
@@ -32,7 +32,7 @@ docker run --rm -d \
 
 Kopia 的备份前脚本调用 Go 程序的 prepare 命令，确保所有启用备份的 volume 都已经出现在 `/volumes/<name>`。
 
-Kopia 的备份后脚本调用 Go 程序的 cleanup 命令，停止带有 `kopia.volume-bridge=true` 标签的 helper 容器，让 Docker 自动清理这些临时挂载。
+Kopia 的备份后脚本调用 Go 程序的 cleanup 命令，停止带有 `revopia=true` 标签的 helper 容器，让 Docker 自动清理这些临时挂载。
 
 Kopia policy 只需要管理 `/volumes/<name>` 这些稳定路径，项目不实现自己的备份调度层。
 
@@ -43,7 +43,7 @@ Kopia 目前有 snapshot 前后脚本，但没有等价的 restore 前后脚本�
 恢复默认写入一个新 Docker volume，而不是覆盖原 volume。Go 程序的 restore 命令接收源 volume 和目标 volume，目标 volume 不存在时自动创建，存在时默认要求它为空。覆盖已有非空 volume 必须使用显式危险参数。
 
 ```bash
-kopia-volume-bridge restore \
+revopia restore \
   --source-volume app-data \
   --target-volume app-data-restore-20260508-153000
 ```
@@ -54,13 +54,13 @@ Go 程序创建恢复 helper 容器时，把目标 volume 以可写方式挂载�
 
 ```bash
 docker run --rm -d \
-  --name kopia-volume-restore-bridge-<session-hash> \
-  --label kopia.volume-bridge=true \
-  --label kopia.volume-bridge.mode=restore \
-  --label kopia.volume-bridge.session=<session-id> \
-  --label kopia.volume-bridge.source-volume=<source-volume-name> \
-  --label kopia.volume-bridge.target-volume=<target-volume-name> \
-  --mount type=bind,source=/mnt/volumes-backup,target=/bridge,bind-propagation=rshared \
+  --name revopia-restore-bridge-<session-hash> \
+  --label revopia=true \
+  --label revopia.mode=restore \
+  --label revopia.session=<session-id> \
+  --label revopia.source-volume=<source-volume-name> \
+  --label revopia.target-volume=<target-volume-name> \
+  --mount type=bind,source=/mnt/revopia,target=/bridge,bind-propagation=rshared \
   --mount type=volume,source=<target-volume-name>,target=/bridge/restore/<friendly-name> \
   alpine sleep infinity
 ```
@@ -77,7 +77,7 @@ kopia snapshot restore <source-directory-id> /restore/app-data
 kopia snapshot restore /volumes/app-data /restore/app-data --snapshot-time latest
 ```
 
-恢复 helper 的 cleanup 必须和备份 cleanup 分开。`restore-cleanup` 只清理带有 `kopia.volume-bridge.mode=restore` 和指定 session 标签的 helper 容器，不删除目标 volume。
+恢复 helper 的 cleanup 必须和备份 cleanup 分开。`restore-cleanup` 只清理带有 `revopia.mode=restore` 和指定 session 标签的 helper 容器，不删除目标 volume。
 
 恢复创建的新 volume 默认不复制 `backup.enable=true`、`backup.name` 这类备份发现标签，避免下一轮备份自动把恢复卷纳入备份。Go 程序可以给目标 volume 添加审计标签，例如源 volume 名、目标 friendly name、恢复 session、创建时间和创建工具版本。
 
@@ -92,8 +92,8 @@ services:
   kopia:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /mnt/volumes-backup:/volumes:rslave
-      - /mnt/volumes-backup/restore:/restore:rslave
+      - /mnt/revopia:/volumes:rslave
+      - /mnt/revopia/restore:/restore:rslave
 ```
 
 helper 容器侧仍然使用 `bind-propagation=rshared`，因为它需要让 Docker daemon 创建的子挂载传播出去。
@@ -128,11 +128,11 @@ restore 命令必须输出它实际准备的目标路径和推荐的 `kopia snap
 
 挂载传播依赖 Linux shared subtree 机制。Docker Desktop 不支持 bind mount propagation，因此这个方案主要面向 Linux Docker Engine。
 
-当前的传播桥模型会让 helper 容器把 Docker volume 的挂载传播到宿主机 bridge 目录下，例如 `/mnt/volumes-backup/<friendly-name>`。实测在 Linux Docker Engine 上，删除 helper 容器后这些传播出来的子挂载可能不会自动消失，即使已经没有任何容器运行，`docker compose down -v` 或 `docker volume rm` 仍然可能因为 volume 的 `_data` 路径处于 busy 状态而失败，典型错误是 `device or resource busy`。
+当前的传播桥模型会让 helper 容器把 Docker volume 的挂载传播到宿主机 bridge 目录下，例如 `/mnt/revopia/<friendly-name>`。实测在 Linux Docker Engine 上，删除 helper 容器后这些传播出来的子挂载可能不会自动消失，即使已经没有任何容器运行，`docker compose down -v` 或 `docker volume rm` 仍然可能因为 volume 的 `_data` 路径处于 busy 状态而失败，典型错误是 `device or resource busy`。
 
 如果用户已经遇到这个状态，可以按照 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 手动确认残留挂载、卸载 bridge 下的传播挂载，并在挂载消失后删除 Docker volume。
 
-把 helper 的 bind mount 从整个 bridge 根目录改成单个 `/mnt/volumes-backup/<friendly-name>:/bridge/<friendly-name>` 不能从根本上解决这个问题，因为问题来自 `rshared` 把子挂载传播回宿主机后的生命周期管理，而不是 bridge 根目录本身太宽。推荐继续保留传播桥模型，但把 cleanup 设计成两阶段流程，先删除本项目创建的 helper 容器，再对这些 helper 标签里记录的 friendly name 执行明确的子挂载回收。
+把 helper 的 bind mount 从整个 bridge 根目录改成单个 `/mnt/revopia/<friendly-name>:/bridge/<friendly-name>` 不能从根本上解决这个问题，因为问题来自 `rshared` 把子挂载传播回宿主机后的生命周期管理，而不是 bridge 根目录本身太宽。推荐继续保留传播桥模型，但把 cleanup 设计成两阶段流程，先删除本项目创建的 helper 容器，再对这些 helper 标签里记录的 friendly name 执行明确的子挂载回收。
 
 子挂载回收可以由宿主机侧 Go 进程直接执行，也可以由 Go 程序临时创建一个受控 cleanup 容器执行。如果由宿主机侧 Go 进程执行 `umount`，该进程需要在宿主机上拥有 `CAP_SYS_ADMIN`，通常意味着以 root 运行，或给可执行文件授予受控 capability。如果由 cleanup 容器执行 `umount`，容器只需要挂载同一个 bridge 目录到 `/bridge`，使用 `bind-propagation=rshared`，禁用网络，并获得卸载挂载点所需的 `CAP_SYS_ADMIN`。
 

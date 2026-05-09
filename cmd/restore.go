@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/yewfence/volume-backup/internal/bridge"
+	"github.com/yewfence/revopia/internal/bridge"
 )
 
 func newRestoreCommand() *cobra.Command {
@@ -87,7 +87,7 @@ func restoreSourceVolumeArg() cobra.PositionalArgs {
 		if len(args) != 1 {
 			return withHints(
 				fmt.Errorf("restore 需要一个 source-volume 位置参数"),
-				"示例 `volume-backup restore app-data`",
+				"示例 `revopia restore app-data`",
 				"用 `docker volume ls` 查看当前 Docker volume 名称",
 			)
 		}
