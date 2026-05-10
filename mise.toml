@@ -9,6 +9,7 @@ go = "1.25"
 golangci-lint = "2"
 "github:jj-vcs/jj" = "latest"
 lazydocker = "latest"
+kopia = "latest"
 
 [tasks.tidy]
 description = "整理 Go 模块依赖"
@@ -22,9 +23,17 @@ run = "go get -u ./... && go mod tidy"
 description = "运行 Go 测试"
 run = "go test -v ./..."
 
+[tasks.test-e2e-container]
+description = "运行容器 Kopia 端到端测试"
+run = "go test -tags=e2e -run '^TestRevopiaE2E$' -v ."
+
+[tasks.test-e2e-host]
+description = "运行宿主机 Kopia 端到端测试"
+run = "go test -tags=e2e -run '^TestRevopiaHostE2E$' -v ."
+
 [tasks.test-e2e]
 description = "运行 Kopia Docker volume 端到端测试"
-run = "go test -tags=e2e -run TestRevopiaE2E -v ."
+run = "go test -tags=e2e -run 'TestRevopia.*E2E' -v ."
 
 [tasks.fmt]
 description = "检查 Go 代码格式"
