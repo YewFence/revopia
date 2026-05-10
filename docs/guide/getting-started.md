@@ -16,7 +16,15 @@ mise run build
 生产 compose 提供了安装 profile，会把 release 二进制下载到 `revopia-tools` volume。
 
 ```bash
-VERSION=<release-version> docker compose --profile install run --rm revopia-install
+docker compose --profile install run --rm revopia-install
+```
+
+安装 profile 会调用仓库里的安装脚本。脚本默认安装 GitHub latest release，并使用 GitHub Release asset 的 sha256 digest 校验下载内容。如果要安装指定版本，可以设置 `VERSION=v0.1.0`。
+
+也可以直接把二进制下载到当前目录。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yewfence/revopia/main/scripts/install.sh | sh
 ```
 
 ## 2. 标记 Docker volume

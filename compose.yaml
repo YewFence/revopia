@@ -49,7 +49,7 @@ services:
       - kopia-cache:/app/cache
       - kopia-repository:/repository
       - ./logs:/app/logs
-      - revopia-tools:/tools:ro
+      - ./tools:/tools/revopia:ro
       - /mnt/revopia:/volumes:rshared
       - /mnt/revopia/restore:/restore:rslave
 
@@ -78,30 +78,18 @@ services:
     restart: "no"
     environment:
       VERSION: ${VERSION:-}
-      REVOPIA_DOWNLOAD_URL: ${REVOPIA_DOWNLOAD_URL:-}
-      REVOPIA_SHA256: ${REVOPIA_SHA256:-}
+      REVOPIA_VERSION: ${REVOPIA_VERSION:-}
+      REVOPIA_REPO: ${REVOPIA_REPO:-yewfence/revopia}
+      REVOPIA_INSTALL_URL: ${REVOPIA_INSTALL_URL:-https://raw.githubusercontent.com/yewfence/revopia/main/scripts/install.sh}
     command:
       - sh
       - -eu
       - -c
       - |
-        : "$${VERSION:?set VERSION to the release version}"
-        apk add --no-cache ca-certificates curl
-        arch="$$(uname -m)"
-        case "$$arch" in
-          x86_64) artifact_arch=amd64 ;;
-          aarch64|arm64) artifact_arch=arm64 ;;
-          *) echo "unsupported architecture: $$arch" >&2; exit 1 ;;
-        esac
-        url="$${REVOPIA_DOWNLOAD_URL:-https://github.com/yewfence/revopia/releases/download/$${VERSION}/revopia-linux-$${artifact_arch}}"
-        curl -fsSL "$$url" -o /tools/revopia.tmp
-        if [ -n "$${REVOPIA_SHA256}" ]; then
-          echo "$${REVOPIA_SHA256}  /tools/revopia.tmp" | sha256sum -c -
-        fi
-        chmod 0755 /tools/revopia.tmp
-        mv /tools/revopia.tmp /tools/revopia
+        apk add --no-cache ca-certificates curl jq
+        curl -fsSL "$${REVOPIA_INSTALL_URL}" | REVOPIA_INSTALL_PATH=/tools/revopia sh
     volumes:
-      - revopia-tools:/tools
+      - ./tools:/tools
 
 networks:
   docker-api:
@@ -111,4 +99,3 @@ volumes:
   kopia-config:
   kopia-cache:
   kopia-repository:
-  revopia-tools:
