@@ -69,6 +69,82 @@ func TestBuildVolumeSpecsDetectsDuplicateNames(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigUsesHostRuntimeDefaults(t *testing.T) {
+	t.Setenv("REVOPIA_RUNTIME", "host")
+	t.Setenv("REVOPIA_BRIDGE_SOURCE", "")
+	t.Setenv("REVOPIA_VISIBLE_ROOT", "")
+	t.Setenv("REVOPIA_RESTORE_ROOT", "")
+	t.Setenv("REVOPIA_HELPER_IMAGE", "")
+
+	cfg := DefaultConfig()
+	if cfg.BridgeSource != "/mnt/revopia" {
+		t.Fatalf("bridge source = %q, want /mnt/revopia", cfg.BridgeSource)
+	}
+	if cfg.VisibleRoot != "/mnt/revopia" {
+		t.Fatalf("visible root = %q, want /mnt/revopia", cfg.VisibleRoot)
+	}
+	if cfg.RestoreVisibleRoot != "/mnt/revopia/restore" {
+		t.Fatalf("restore root = %q, want /mnt/revopia/restore", cfg.RestoreVisibleRoot)
+	}
+	if cfg.HelperImage != "alpine" {
+		t.Fatalf("helper image = %q, want alpine", cfg.HelperImage)
+	}
+}
+
+func TestDefaultConfigUsesContainerRuntimeDefaults(t *testing.T) {
+	t.Setenv("REVOPIA_RUNTIME", "container")
+	t.Setenv("REVOPIA_BRIDGE_SOURCE", "")
+	t.Setenv("REVOPIA_VISIBLE_ROOT", "")
+	t.Setenv("REVOPIA_RESTORE_ROOT", "")
+
+	cfg := DefaultConfig()
+	if cfg.BridgeSource != "/mnt/revopia" {
+		t.Fatalf("bridge source = %q, want /mnt/revopia", cfg.BridgeSource)
+	}
+	if cfg.VisibleRoot != "/volumes" {
+		t.Fatalf("visible root = %q, want /volumes", cfg.VisibleRoot)
+	}
+	if cfg.RestoreVisibleRoot != "/restore" {
+		t.Fatalf("restore root = %q, want /restore", cfg.RestoreVisibleRoot)
+	}
+}
+
+func TestDefaultConfigUsesCustomHostBridgeAsVisibleRoot(t *testing.T) {
+	t.Setenv("REVOPIA_RUNTIME", "host")
+	t.Setenv("REVOPIA_BRIDGE_SOURCE", "/srv/revopia")
+	t.Setenv("REVOPIA_VISIBLE_ROOT", "")
+	t.Setenv("REVOPIA_RESTORE_ROOT", "")
+
+	cfg := DefaultConfig()
+	if cfg.BridgeSource != "/srv/revopia" {
+		t.Fatalf("bridge source = %q, want /srv/revopia", cfg.BridgeSource)
+	}
+	if cfg.VisibleRoot != "/srv/revopia" {
+		t.Fatalf("visible root = %q, want /srv/revopia", cfg.VisibleRoot)
+	}
+	if cfg.RestoreVisibleRoot != "/srv/revopia/restore" {
+		t.Fatalf("restore root = %q, want /srv/revopia/restore", cfg.RestoreVisibleRoot)
+	}
+}
+
+func TestDefaultConfigExplicitPathsOverrideRuntimeDefaults(t *testing.T) {
+	t.Setenv("REVOPIA_RUNTIME", "host")
+	t.Setenv("REVOPIA_VISIBLE_ROOT", "/custom/visible")
+	t.Setenv("REVOPIA_RESTORE_ROOT", "/custom/restore")
+	t.Setenv("REVOPIA_HELPER_IMAGE", "busybox")
+
+	cfg := DefaultConfig()
+	if cfg.VisibleRoot != "/custom/visible" {
+		t.Fatalf("visible root = %q, want /custom/visible", cfg.VisibleRoot)
+	}
+	if cfg.RestoreVisibleRoot != "/custom/restore" {
+		t.Fatalf("restore root = %q, want /custom/restore", cfg.RestoreVisibleRoot)
+	}
+	if cfg.HelperImage != "busybox" {
+		t.Fatalf("helper image = %q, want busybox", cfg.HelperImage)
+	}
+}
+
 func TestHelperContainerNameIsStableAndOpaque(t *testing.T) {
 	got := helperContainerName("db-volume")
 	if got != helperContainerName("db-volume") {

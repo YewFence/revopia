@@ -1,6 +1,6 @@
 # revopia
 
-`revopia` 是一个配合 Kopia 使用的 Docker volume 挂载桥。它通过 Docker API 为带标签的 Docker volume 创建短生命周期 helper 容器，把这些 volume 暴露到 Kopia 容器里的稳定路径。
+`revopia` 是一个配合 Kopia 使用的 Docker volume 挂载桥。它通过 Docker API 为带标签的 Docker volume 创建短生命周期 helper 容器，把这些 volume 暴露到 Kopia 可见的稳定路径。
 
 名字 `revopia` 是从旧项目 `yew-resin`、Docker volume 和 Kopia 里各取一部分拼出来的自造词。`re` 延续 resin 的命名来源，`vo` 指向 volume，`pia` 来自 Kopia，也对应这个工具把 named volume 通过挂载桥交给 Kopia 管理的定位。
 
@@ -15,12 +15,13 @@ Kopia 仍然负责仓库、策略、快照、保留规则和恢复。本项目�
 ## 工作方式
 
 ```
-宿主机 /mnt/revopia
-        |
-        | 传播到 Kopia 容器
-        v
-Kopia /volumes/<friendly-name>   只读备份视图
-Kopia /restore/<friendly-name>   可写恢复视图
+宿主机 Kopia
+  /mnt/revopia/<friendly-name>          只读备份视图
+  /mnt/revopia/restore/<friendly-name>  可写恢复视图
+
+容器 Kopia
+  宿主机 /mnt/revopia          -> Kopia /volumes
+  宿主机 /mnt/revopia/restore  -> Kopia /restore
 
 helper 容器
   /bridge                         rshared bind mount
@@ -28,11 +29,11 @@ helper 容器
   /bridge/restore/<friendly-name> Docker volume 可写挂载
 ```
 
-`prepare` 会扫描带有 `backup.enable=true` 标签的 Docker volume。每个符合条件的 volume 都会得到一个 helper 容器，helper 容器把 volume 只读挂载到 `/bridge/<friendly-name>`，这个子挂载会通过宿主机 bridge 目录传播到 Kopia 容器的 `/volumes/<friendly-name>`。
+`prepare` 会扫描带有 `backup.enable=true` 标签的 Docker volume。每个符合条件的 volume 都会得到一个 helper 容器，helper 容器把 volume 只读挂载到 `/bridge/<friendly-name>`，这个子挂载会通过宿主机 bridge 目录传播到当前 Kopia 进程可见的备份路径。
 
 `cleanup` 会删除本项目管理的备份 helper 容器，并尝试回收传播出来的挂载点。普通卸载失败时会保留现场并给出诊断，只有显式传入 `--dangerously-lazy-umount` 才会使用 lazy unmount。
 
-`restore` 不会直接调用 Kopia。它会准备一个目标 Docker volume，并把它可写暴露到 `/restore/<friendly-name>`，然后打印推荐的 `kopia snapshot restore` 命令。
+`restore` 不会直接调用 Kopia。它会准备一个目标 Docker volume，并把它可写暴露到当前 Kopia 进程可见的恢复路径，然后打印推荐的 `kopia snapshot restore` 命令。
 
 ## 环境要求
 
@@ -59,7 +60,7 @@ mise run build
 go build -trimpath -ldflags='-s -w -X main.version=dev' -o bin/revopia .
 ```
 
-生产 compose 文件提供了一个安装 profile，会把 release 二进制下载到 `revopia-tools` volume 中，Kopia 容器通过 `/tools/revopia` 使用它。
+生产 compose 文件提供了一个安装 profile，会把 release 二进制下载到 `./tools`，Kopia 容器通过 `/tools/revopia` 使用它。
 
 ```bash
 docker compose --profile install run --rm revopia-install
@@ -68,17 +69,18 @@ docker compose up -d
 
 安装 profile 会调用仓库里的安装脚本。脚本默认安装 GitHub latest release，并使用 GitHub Release asset 的 sha256 digest 校验下载内容。如果要安装指定版本，可以设置 `VERSION=v0.1.0`。
 
-也可以直接把二进制下载到当前目录。
+宿主机部署时也可以直接安装 release 二进制。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yewfence/revopia/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/yewfence/revopia/main/scripts/install.sh | \
+  REVOPIA_INSTALL_PATH=/usr/local/bin/revopia sh
 ```
 
 如果使用源码构建后的本地开发配置，可以运行下面的命令。
 
 ```bash
 mise run build
-docker compose -f compose.dev.yaml up -d
+docker compose up -d
 ```
 
 ## 标记要备份的 volume
@@ -100,6 +102,122 @@ docker volume create db-data \
 
 ## 部署 Kopia
 
+推荐把 Kopia 跑在宿主机上，`revopia` 会自动使用宿主机默认路径，备份视图是 `/mnt/revopia`，恢复视图是 `/mnt/revopia/restore`，日志默认写到 `/var/log/revopia/revopia.log`。如果检测到自己运行在容器里，默认值会切到 `/volumes`、`/restore` 和 `/app/logs/revopia.log`。识别不符合预期时可以显式设置 `REVOPIA_RUNTIME=host` 或 `REVOPIA_RUNTIME=container`。
+
+### 宿主机 systemd
+
+Kopia 可以按官方安装文档安装，也可以用 mise 安装。官方安装文档见 [Kopia Installation](https://kopia.io/docs/installation/)。
+
+```bash
+mise use -g kopia
+```
+
+创建专用用户，并让它能访问 Docker daemon、Kopia 配置、repository、bridge 目录和 revopia 日志目录。
+
+```bash
+sudo useradd --system --home /var/lib/kopia --create-home --shell /usr/sbin/nologin kopia
+sudo usermod -aG docker kopia
+sudo install -d -o kopia -g kopia -m 0750 /etc/kopia-revopia
+sudo install -d -o kopia -g kopia -m 0750 /var/lib/kopia/repository
+sudo install -d -o kopia -g kopia -m 0755 /mnt/revopia
+sudo install -d -o kopia -g kopia -m 0755 /mnt/revopia/restore
+sudo install -d -o kopia -g kopia -m 0755 /var/log/revopia
+```
+
+如果宿主机原来已经有 Kopia 配置，不要覆盖原配置，可以给 revopia 单独指定配置目录。下面示例用 `--config-file=/etc/kopia-revopia/repository.config`，也可以换成你已有的配置文件路径。
+
+```bash
+sudo -u kopia kopia --config-file=/etc/kopia-revopia/repository.config \
+  repository create filesystem \
+  --path=/var/lib/kopia/repository \
+  --enable-actions
+```
+
+如果仓库已经存在，可以改用 `repository connect`，也要带上 `--enable-actions`。
+
+```bash
+sudo -u kopia kopia --config-file=/etc/kopia-revopia/repository.config \
+  repository connect filesystem \
+  --path=/var/lib/kopia/repository \
+  --enable-actions
+```
+
+给宿主机备份视图设置 policy。`--one-file-system=false` 需要保留，因为 Docker volume 会作为传播出来的子挂载出现在 bridge 目录下。
+
+```bash
+sudo -u kopia kopia --config-file=/etc/kopia-revopia/repository.config \
+  policy set /mnt/revopia \
+  --before-snapshot-root-action="/usr/local/bin/revopia prepare" \
+  --after-snapshot-root-action="/usr/local/bin/revopia cleanup" \
+  --one-file-system=false
+```
+
+按 policy 设置自动快照时间。Kopia Server 或 KopiaUI 运行时才会调度这些快照，单次执行 `kopia policy set` 不会额外生成 cron 或 systemd timer。
+
+```bash
+sudo -u kopia kopia --config-file=/etc/kopia-revopia/repository.config \
+  policy set /mnt/revopia \
+  --snapshot-interval=24h \
+  --run-missed=true
+```
+
+给 Kopia Server 准备环境文件。这里的密码只是示例，生产环境应该换成自己的值，也可以按现有密钥管理方式注入。
+
+```bash
+sudo install -o root -g kopia -m 0640 /dev/null /etc/kopia-revopia/server.env
+sudoedit /etc/kopia-revopia/server.env
+```
+
+```env
+KOPIA_PASSWORD=change-this-repository-password
+```
+
+写入 systemd unit。`kopia server start` 是常驻进程，policy 里的定时快照由这个 server 进程调度。
+
+```bash
+sudo tee /etc/systemd/system/kopia-revopia.service >/dev/null <<'EOF'
+[Unit]
+Description=Kopia Server for revopia
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=kopia
+Group=kopia
+SupplementaryGroups=docker
+EnvironmentFile=/etc/kopia-revopia/server.env
+Environment=REVOPIA_RUNTIME=host
+Environment=REVOPIA_BRIDGE_SOURCE=/mnt/revopia
+Environment=REVOPIA_VISIBLE_ROOT=/mnt/revopia
+Environment=REVOPIA_RESTORE_ROOT=/mnt/revopia/restore
+Environment=REVOPIA_LOG_FILE=/var/log/revopia/revopia.log
+ExecStart=/usr/local/bin/kopia --config-file=/etc/kopia-revopia/repository.config server start --enable-actions --address=127.0.0.1:51515 --server-username=kopia --server-password=change-this-ui-password
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+如果你的 `kopia` 是 mise 安装的，可以先确认真实路径，再把 `ExecStart` 里的 `/usr/local/bin/kopia` 换成这个路径。
+
+```bash
+mise which kopia
+```
+
+启动服务。
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now kopia-revopia.service
+sudo systemctl status kopia-revopia.service
+```
+
+### 容器 compose
+
 > 以下的代码使用了 `alias` 以简化操作。如果你使用了 Mise 且已经 Activate，`alias` 会自动加载，详见 [mise.toml](mise.toml)。
 ```bash
 alias kopia="docker compose exec -T kopia kopia"
@@ -109,7 +227,7 @@ alias revopia="docker compose exec -T kopia revopia"
 
 仓库里的 `compose.yaml` 是生产方向的参考配置。它通过 `docker-socket-proxy` 暴露有限 Docker API 给 Kopia 容器，默认把宿主机的 `/mnt/revopia` 挂到 `/volumes`，把 `/mnt/revopia/restore` 挂到 `/restore`。这个 bridge 路径不需要提前手动创建或重新挂载，Docker 会在 compose bind mount 和 helper bind mount 阶段处理它。
 
-首次使用 Kopia 时，需要按 Kopia 正常流程创建或连接仓库。使用仓库里的 compose 默认文件系统仓库时，路径是 `/repository`。
+首次使用容器 Kopia 时，需要按 Kopia 正常流程创建或连接仓库。使用仓库里的 compose 默认文件系统仓库时，路径是 `/repository`。
 
 ```bash
 kopia repository create filesystem \
@@ -121,7 +239,23 @@ kopia repository create filesystem \
 
 ## 配置 Kopia policy
 
-给 `/volumes` 设置 snapshot 前后动作。备份开始前运行 `prepare`，备份结束后运行 `cleanup`。
+宿主机部署时给 `/mnt/revopia` 设置 snapshot 前后动作。备份开始前运行 `prepare`，备份结束后运行 `cleanup`。
+
+```bash
+kopia policy set /mnt/revopia \
+  --before-snapshot-root-action="revopia prepare" \
+  --after-snapshot-root-action="revopia cleanup" \
+  --one-file-system=false
+```
+
+然后照常让 Kopia 创建快照，或者让 `kopia server start` 按 policy 调度。
+
+```bash
+kopia snapshot create /mnt/revopia
+kopia snapshot list /mnt/revopia
+```
+
+容器部署时路径换成 `/volumes`。
 
 ```bash
 kopia policy set /volumes \
@@ -130,19 +264,12 @@ kopia policy set /volumes \
   --one-file-system=false
 ```
 
-然后照常让 Kopia 创建快照。
-
-```bash
-kopia snapshot create /volumes
-kopia snapshot list /volumes
-```
-
 也可以只备份某一个 volume 对应的路径。
 
 ```bash
-# kopia 无法快照不存在的目录，所以需要预先创建空目录，挂载点会覆盖它
-exec-kopia mkdir -p /volumes/app-data
-kopia snapshot create /volumes/app-data
+# kopia 无法快照不存在的目录，所以需要预先创建空目录，挂载点会覆盖它。
+mkdir -p /mnt/revopia/app-data
+kopia snapshot create /mnt/revopia/app-data
 ```
 
 ## 恢复数据
@@ -154,7 +281,17 @@ revopia restore app-data \
   --target-volume app-data-restore-20260509
 ```
 
-命令会输出 `RESTORE_SESSION_ID`、`RESTORE_TARGET_PATH` 和推荐的 Kopia 命令。按输出执行恢复即可，常见路径恢复命令类似下面这样。
+命令会输出 `RESTORE_SESSION_ID`、`RESTORE_TARGET_PATH` 和推荐的 Kopia 命令。按输出执行恢复即可，宿主机部署的常见路径恢复命令类似下面这样。
+
+```bash
+kopia snapshot list /mnt/revopia/app-data
+kopia snapshot restore \
+  /mnt/revopia/app-data \
+  /mnt/revopia/restore/app-data \
+  --snapshot-time latest
+```
+
+容器部署时路径是 `/volumes` 和 `/restore`。
 
 ```bash
 kopia snapshot list /volumes/app-data
@@ -179,8 +316,8 @@ revopia restore-cleanup \
 | 命令 | 用途 |
 | --- | --- |
 | `prepare` | 扫描 `backup.enable=true` 的 volume，创建或复用备份 helper |
-| `cleanup` | 删除备份 helper，并回收 `/volumes/<friendly-name>` 的传播挂载 |
-| `restore SOURCE_VOLUME` | 准备恢复目标 volume，并暴露到 `/restore/<friendly-name>` |
+| `cleanup` | 删除备份 helper，并回收备份视图里的传播挂载 |
+| `restore SOURCE_VOLUME` | 准备恢复目标 volume，并暴露到恢复视图 |
 | `restore-cleanup` | 清理恢复 helper 和恢复挂载，不删除目标 volume |
 | `inspect` | 查看配置、启用备份的 volume、helper 容器和可见路径状态 |
 | `completion` | 生成 Bash、Zsh、Fish 或 PowerShell 补全脚本 |
@@ -191,20 +328,37 @@ revopia restore-cleanup \
 | 环境变量 | 参数 | 默认值 |
 | --- | --- | --- |
 | `REVOPIA_BRIDGE_SOURCE` | `--bridge-source` | `/mnt/revopia` |
-| `REVOPIA_VISIBLE_ROOT` | `--visible-root` | `/volumes` |
-| `REVOPIA_RESTORE_ROOT` | `--restore-root` | `/restore` |
+| `REVOPIA_VISIBLE_ROOT` | `--visible-root` | 宿主机 `/mnt/revopia`，容器 `/volumes` |
+| `REVOPIA_RESTORE_ROOT` | `--restore-root` | 宿主机 `/mnt/revopia/restore`，容器 `/restore` |
 | `REVOPIA_HELPER_IMAGE` | `--helper-image` | `alpine` |
-| `REVOPIA_LOG_FILE` | `--log-file` | `/app/logs/revopia.log` |
+| `REVOPIA_LOG_FILE` | `--log-file` | 宿主机 `/var/log/revopia/revopia.log`，容器 `/app/logs/revopia.log` |
+| `REVOPIA_RUNTIME` | 无 | 自动识别，可设为 `host` 或 `container` |
 
 ## 诊断和清理
 
 先用 `inspect` 看当前状态。
 
 ```bash
+revopia inspect
+```
+
+容器部署时通过 Kopia 容器执行。
+
+```bash
 docker compose exec kopia revopia inspect
 ```
 
 如果普通清理报告 `device or resource busy`，优先确认没有 Kopia 任务、业务容器或 shell 工作目录占用 bridge 路径。确认无占用后，再显式使用 lazy unmount。
+
+```bash
+revopia cleanup --dangerously-lazy-umount
+revopia restore-cleanup \
+  --session <restore-session-id> \
+  --yes \
+  --dangerously-lazy-umount
+```
+
+容器部署时命令前面加 `docker compose exec kopia`。
 
 ```bash
 docker compose exec kopia revopia cleanup --dangerously-lazy-umount

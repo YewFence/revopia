@@ -65,24 +65,10 @@ func SetVersion(version string) {
 	bridge.SetVersion(version)
 }
 
-func newBridgeOptions(includeVerify bool) bridgeOptions {
-	cfg := bridge.DefaultConfig()
-	opts := bridgeOptions{
-		cfg:           cfg,
-		timeout:       defaultTimeout,
-		verifyTimeout: cfg.VerifyTimeout,
-		logFile:       defaultLogFile(),
-	}
-	if !includeVerify {
-		opts.verifyTimeout = 0
-	}
-	return opts
-}
-
 func addBridgeFlags(cmd *cobra.Command, opts *bridgeOptions, includeVerify bool) {
 	flags := cmd.Flags()
 	flags.StringVar(&opts.cfg.BridgeSource, "bridge-source", opts.cfg.BridgeSource, "Docker daemon 侧的宿主机 bridge bind mount 路径")
-	flags.StringVar(&opts.cfg.VisibleRoot, "visible-root", opts.cfg.VisibleRoot, "Kopia 容器内可见的 volume 根路径")
+	flags.StringVar(&opts.cfg.VisibleRoot, "visible-root", opts.cfg.VisibleRoot, "当前 Kopia 进程可见的 volume 根路径")
 	flags.StringVar(&opts.cfg.HelperImage, "helper-image", opts.cfg.HelperImage, "helper 容器镜像")
 	flags.StringVar(&opts.logFile, "log-file", opts.logFile, "持久日志文件路径，留空则禁用文件日志")
 	flags.DurationVar(&opts.timeout, "timeout", opts.timeout, "Docker API 调用超时时间")
@@ -130,7 +116,24 @@ func defaultLogFile() string {
 	if value := strings.TrimSpace(os.Getenv("REVOPIA_LOG_FILE")); value != "" {
 		return value
 	}
-	return "/app/logs/revopia.log"
+	if bridge.RunningInContainer() {
+		return "/app/logs/revopia.log"
+	}
+	return "/var/log/revopia/revopia.log"
+}
+
+func newBridgeOptions(includeVerify bool) bridgeOptions {
+	cfg := bridge.DefaultConfig()
+	opts := bridgeOptions{
+		cfg:           cfg,
+		timeout:       defaultTimeout,
+		verifyTimeout: cfg.VerifyTimeout,
+		logFile:       defaultLogFile(),
+	}
+	if !includeVerify {
+		opts.verifyTimeout = 0
+	}
+	return opts
 }
 
 func openCommandLog(path string) (io.Closer, bridge.Logger, error) {

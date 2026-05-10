@@ -87,6 +87,33 @@ func TestRestoreMissingSourceVolumeReturnsHints(t *testing.T) {
 	}
 }
 
+func TestDefaultLogFileUsesHostRuntimeDefault(t *testing.T) {
+	t.Setenv("REVOPIA_RUNTIME", "host")
+	t.Setenv("REVOPIA_LOG_FILE", "")
+
+	if got := defaultLogFile(); got != "/var/log/revopia/revopia.log" {
+		t.Fatalf("default log file = %q, want /var/log/revopia/revopia.log", got)
+	}
+}
+
+func TestDefaultLogFileUsesContainerRuntimeDefault(t *testing.T) {
+	t.Setenv("REVOPIA_RUNTIME", "container")
+	t.Setenv("REVOPIA_LOG_FILE", "")
+
+	if got := defaultLogFile(); got != "/app/logs/revopia.log" {
+		t.Fatalf("default log file = %q, want /app/logs/revopia.log", got)
+	}
+}
+
+func TestDefaultLogFileUsesEnvironmentOverride(t *testing.T) {
+	t.Setenv("REVOPIA_RUNTIME", "host")
+	t.Setenv("REVOPIA_LOG_FILE", "/tmp/revopia.log")
+
+	if got := defaultLogFile(); got != "/tmp/revopia.log" {
+		t.Fatalf("default log file = %q, want /tmp/revopia.log", got)
+	}
+}
+
 func TestRestoreCleanupCancelledWithoutDocker(t *testing.T) {
 	got, err := executeCommandWithInput("no\n", "restore-cleanup", "--log-file", "")
 	if err != nil {

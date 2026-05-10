@@ -15,7 +15,7 @@ func restoreBridgeSourceMissingError() error {
 func restoreRootMissingError() error {
 	return withHints(
 		fmt.Errorf("restore root 不能为空"),
-		"用 --restore-root 指定 Kopia 容器内的恢复根路径，常见值是 /restore",
+		"用 --restore-root 指定当前 Kopia 进程可见的恢复根路径，容器常见值是 /restore，宿主机常见值是 /mnt/revopia/restore",
 	)
 }
 
@@ -185,7 +185,7 @@ func restoreListVolumesHint() string {
 }
 
 func restoreDockerAccessHint() string {
-	return "确认当前进程可以访问 Docker socket，Kopia 容器里通常需要挂载 /var/run/docker.sock"
+	return "确认当前进程可以访问 Docker socket，宿主机服务用户通常需要加入 docker 组，Kopia 容器里通常需要挂载 /var/run/docker.sock"
 }
 
 func restoreHelperImageHint(helperImage string) string {
@@ -193,7 +193,7 @@ func restoreHelperImageHint(helperImage string) string {
 }
 
 func restorePropagationHint(cfg Config) string {
-	return fmt.Sprintf("确认宿主机 bridge 路径 %s 是 shared mount，并且 Kopia 容器把它挂到恢复根路径 %s", shellArg(cfg.BridgeSource), shellArg(cfg.RestoreVisibleRoot))
+	return fmt.Sprintf("确认宿主机 bridge 路径 %s 是 shared mount，并且当前 Kopia 进程能看到恢复根路径 %s", shellArg(cfg.BridgeSource), shellArg(cfg.RestoreVisibleRoot))
 }
 
 func restoreCleanupCommandHint(sessionID string) string {
