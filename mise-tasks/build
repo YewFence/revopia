@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="构建 CLI 可执行文件"
+set -euo pipefail
+
+module="$(go list -m)"
+module_base="${module##*/}"
+
+case "${module_base}" in
+  v[2-9] | v[1-9][0-9]*)
+    module_without_version="${module%/${module_base}}"
+    default_binary_name="${module_without_version##*/}"
+    ;;
+  *)
+    default_binary_name="${module_base}"
+    ;;
+esac
+
+binary_name="${BINARY_NAME:-${default_binary_name}}"
+version="${BUILD_VERSION:-dev}"
+output_dir="${BUILD_OUTPUT_DIR:-bin}"
+output_suffix="${BUILD_OUTPUT_SUFFIX:-}"
+output="${BUILD_OUTPUT:-${output_dir}/${binary_name}${output_suffix}}"
+
+mkdir -p "$(dirname "${output}")"
+go build -trimpath -ldflags="-s -w -X main.version=${version}" -o "${output}" .

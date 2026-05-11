@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.ACTIONS_UPDATE_TOKEN || github.token }}
 
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
@@ -38,10 +39,18 @@ jobs:
         run: mise run action:update:all
 
       - name: Commit action updates
+        env:
+          ACTIONS_UPDATE_TOKEN: ${{ secrets.ACTIONS_UPDATE_TOKEN }}
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- .github/workflows; then
             echo "没有发现需要更新的 GitHub Actions"
             exit 0
+          fi
+
+          if [[ -z "${ACTIONS_UPDATE_TOKEN}" ]]; then
+            echo "::error::发现需要更新的 GitHub Actions，但没有配置 ACTIONS_UPDATE_TOKEN，无法自动推送 .github/workflows 变更。请配置带 workflow 权限的令牌，或者在本地运行 mise run action:update:all 后手动提交。"
+            git diff --name-only -- .github/workflows
+            exit 1
           fi
 
           git config user.name "github-actions[bot]"

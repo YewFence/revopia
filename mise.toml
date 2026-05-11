@@ -50,11 +50,6 @@ description = "运行 Go lint 检查"
 raw = true
 run = "golangci-lint run"
 
-[tasks.build]
-description = "构建 CLI 二进制"
-raw = true
-run = "go build -trimpath -ldflags='-s -w -X main.version=dev' -o bin/revopia ."
-
 [tasks.check]
 description = "运行 Go 格式、静态检查、构建和 lint"
 run = [
