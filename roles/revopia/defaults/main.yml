@@ -1,0 +1,66 @@
+---
+revopia_user: kopia
+revopia_group: kopia
+revopia_user_home: /var/lib/kopia
+revopia_user_shell: /usr/sbin/nologin
+revopia_docker_group: docker
+
+revopia_manage_mise: true
+revopia_mise_bin: /usr/local/bin/mise
+revopia_mise_install_url: https://mise.run
+revopia_mise_install_script_path: /tmp/revopia-mise-install.sh
+revopia_mise_version: ""
+revopia_mise_update: false
+revopia_mise_update_tools: false
+revopia_mise_environment:
+  HOME: "{{ revopia_user_home }}"
+  USER: "{{ revopia_user }}"
+  MISE_YES: "1"
+revopia_mise_install_environment:
+  MISE_INSTALL_PATH: "{{ revopia_mise_bin }}"
+  MISE_QUIET: "1"
+
+revopia_kopia_version: latest
+revopia_kopia_tool: kopia
+revopia_kopia_bin_name: kopia
+
+revopia_version: latest
+revopia_repo: yewfence/revopia
+revopia_tool: "github:{{ revopia_repo }}"
+revopia_asset_pattern: "revopia-linux-{{ revopia_artifact_arch }}"
+revopia_bin_name: revopia
+revopia_helper_image: alpine
+revopia_arch_map:
+  x86_64: amd64
+  amd64: amd64
+  aarch64: arm64
+  arm64: arm64
+
+revopia_config_dir: /etc/kopia-revopia
+revopia_config_file: /etc/kopia-revopia/repository.config
+revopia_env_file: /etc/kopia-revopia/server.env
+revopia_repository_path: /var/lib/kopia/repository
+revopia_repository_mode: create
+
+revopia_bridge_source: /mnt/revopia
+revopia_bridge_backing_dir: /var/lib/revopia/bridge
+revopia_restore_name: restore
+revopia_restore_backing_dir: "{{ revopia_bridge_backing_dir }}/{{ revopia_restore_name }}"
+revopia_manage_bridge_mount: true
+revopia_visible_root: "{{ revopia_bridge_source }}"
+revopia_restore_root: "{{ revopia_bridge_source }}/{{ revopia_restore_name }}"
+revopia_log_dir: /var/log/revopia
+revopia_log_file: "{{ revopia_log_dir }}/revopia.log"
+
+revopia_manage_policy: true
+revopia_snapshot_interval: 24h
+revopia_snapshot_interval_seconds: 86400
+revopia_run_missed: true
+
+revopia_manage_service: true
+revopia_service_name: kopia-revopia
+revopia_service_description: Kopia Server for Revopia
+revopia_server_address: 127.0.0.1:51515
+revopia_server_username: kopia
+revopia_server_password: ""
+revopia_kopia_password: ""

@@ -1,0 +1,74 @@
+---
+- name: Read Kopia policy as JSON
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - policy
+      - show
+      - --json
+      - "{{ revopia_visible_root }}"
+  register: revopia_policy_json
+  failed_when: false
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"
+
+- name: Store Kopia policy
+  ansible.builtin.set_fact:
+    revopia_policy: "{{ revopia_policy_json.stdout | from_json }}"
+  when: revopia_policy_json.rc == 0
+
+- name: Configure Kopia Revopia actions
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - policy
+      - set
+      - "{{ revopia_visible_root }}"
+      - "--before-snapshot-root-action={{ revopia_bin }} prepare"
+      - "--after-snapshot-root-action={{ revopia_bin }} cleanup"
+      - --one-file-system=false
+  register: revopia_policy_actions
+  changed_when: true
+  when: >
+    revopia_policy_json.rc != 0 or
+    (revopia_policy.actions.beforeSnapshotRoot.path | default('')) != revopia_bin or
+    (revopia_policy.actions.beforeSnapshotRoot.args | default([])) != ['prepare'] or
+    (revopia_policy.actions.afterSnapshotRoot.path | default('')) != revopia_bin or
+    (revopia_policy.actions.afterSnapshotRoot.args | default([])) != ['cleanup'] or
+    (revopia_policy.files.oneFileSystem | default(true) | bool)
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"
+
+- name: Configure Kopia snapshot schedule
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - policy
+      - set
+      - "{{ revopia_visible_root }}"
+      - "--snapshot-interval={{ revopia_snapshot_interval }}"
+      - "--run-missed={{ revopia_run_missed | bool | ternary('true', 'false') }}"
+  register: revopia_policy_schedule
+  changed_when: true
+  when: >
+    revopia_snapshot_interval | length > 0 and
+    (
+      revopia_policy_json.rc != 0 or
+      (revopia_policy.scheduling.intervalSeconds | default(0) | int) != (revopia_snapshot_interval_seconds | int) or
+      (revopia_policy.scheduling.runMissed | default(false) | bool) != (revopia_run_missed | bool)
+    )
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"

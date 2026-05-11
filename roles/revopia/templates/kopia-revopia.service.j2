@@ -1,0 +1,28 @@
+[Unit]
+Description={{ revopia_service_description }}
+After=network-online.target docker.service {{ revopia_bridge_mount_unit | default('') }}
+Wants=network-online.target {{ revopia_bridge_mount_unit | default('') }}
+Requires=docker.service
+{% if revopia_manage_bridge_mount | bool %}
+Requires={{ revopia_bridge_mount_unit }}
+{% endif %}
+RequiresMountsFor={{ revopia_bridge_source }}
+
+[Service]
+Type=simple
+User={{ revopia_user }}
+Group={{ revopia_group }}
+SupplementaryGroups={{ revopia_docker_group }}
+EnvironmentFile={{ revopia_env_file }}
+Environment=REVOPIA_RUNTIME=host
+Environment=REVOPIA_BRIDGE_SOURCE={{ revopia_bridge_source }}
+Environment=REVOPIA_VISIBLE_ROOT={{ revopia_visible_root }}
+Environment=REVOPIA_RESTORE_ROOT={{ revopia_restore_root }}
+Environment=REVOPIA_LOG_FILE={{ revopia_log_file }}
+Environment=REVOPIA_HELPER_IMAGE={{ revopia_helper_image }}
+ExecStart={{ revopia_kopia_bin }} --config-file={{ revopia_config_file }} server start --enable-actions --address={{ revopia_server_address }} --server-username=${KOPIA_SERVER_USERNAME} --server-password=${KOPIA_SERVER_PASSWORD}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
