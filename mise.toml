@@ -69,6 +69,12 @@ description = "运行 CLI"
 run = "go run ."
 
 [shell_alias]
-kopia = "docker compose exec -T kopia kopia"
-revopia = "docker compose exec -T kopia revopia"
+# Means "Kopia in Docker" and "Kopia on Host"
+kopiad = "docker compose exec -T kopia kopia"
+kopiah = "sudo -u kopia kopia"
+# Same as Kopia alias, but for Revopia
+revopiad = "docker compose exec -T kopia revopia"
+revopiah = "sudo -u kopia revopia"
+# Kopia user do
+kudo = "sudo -u kopia"
 exec-kopia = "docker compose exec kopia"
