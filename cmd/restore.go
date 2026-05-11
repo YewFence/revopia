@@ -73,7 +73,7 @@ func addRestoreCleanupFlags(cmd *cobra.Command, opts *bridgeOptions, cleanupOpts
 func addRestoreFlags(cmd *cobra.Command, opts *bridgeOptions, restoreOpts *bridge.RestoreOptions) {
 	addBridgeFlags(cmd, opts, true)
 	flags := cmd.Flags()
-	flags.StringVar(&opts.cfg.RestoreVisibleRoot, "restore-root", opts.cfg.RestoreVisibleRoot, "Kopia 容器内可见的恢复根路径")
+	flags.StringVar(&opts.cfg.RestoreVisibleRoot, "restore-root", opts.cfg.RestoreVisibleRoot, "当前 Kopia 进程可见的恢复根路径")
 	flags.StringVarP(&restoreOpts.TargetVolume, "target-volume", "t", restoreOpts.TargetVolume, "目标 Docker volume 名称，不存在时自动创建")
 	flags.StringVar(&restoreOpts.SourceDirectoryID, "source-directory-id", restoreOpts.SourceDirectoryID, "可选的 Kopia source directory id，用于输出精确恢复命令")
 	flags.StringVar(&restoreOpts.SnapshotTime, "snapshot-time", "latest", "用于输出路径恢复命令的 snapshot time")

@@ -1,0 +1,57 @@
+---
+- name: Resolve Revopia bridge mount unit name
+  ansible.builtin.command:
+    argv:
+      - systemd-escape
+      - --path
+      - --suffix=mount
+      - "{{ revopia_bridge_source }}"
+  register: revopia_bridge_mount_unit_name
+  changed_when: false
+  when: revopia_manage_bridge_mount | bool
+
+- name: Store Revopia bridge mount unit name
+  ansible.builtin.set_fact:
+    revopia_bridge_mount_unit: "{{ revopia_bridge_mount_unit_name.stdout | trim }}"
+  when: revopia_manage_bridge_mount | bool
+
+- name: Install Revopia bridge mount unit
+  ansible.builtin.template:
+    src: revopia-bridge.mount.j2
+    dest: "/etc/systemd/system/{{ revopia_bridge_mount_unit }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart revopia bridge mount
+  when: revopia_manage_bridge_mount | bool
+
+- name: Flush bridge mount handlers
+  ansible.builtin.meta: flush_handlers
+  when: revopia_manage_bridge_mount | bool
+
+- name: Enable Revopia bridge mount
+  ansible.builtin.systemd:
+    name: "{{ revopia_bridge_mount_unit }}"
+    enabled: true
+    state: started
+  when: revopia_manage_bridge_mount | bool
+
+- name: Check Revopia bridge mount propagation
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - PROPAGATION
+      - --target
+      - "{{ revopia_bridge_source }}"
+  register: revopia_bridge_propagation
+  changed_when: false
+
+- name: Assert Revopia bridge mount is shared
+  ansible.builtin.assert:
+    that:
+      - (revopia_bridge_propagation.stdout | trim) == 'shared'
+    fail_msg: "{{ revopia_bridge_source }} must be a shared mount. Enable revopia_manage_bridge_mount or make the mount rshared before running Kopia."

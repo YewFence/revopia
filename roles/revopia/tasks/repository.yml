@@ -1,0 +1,49 @@
+---
+- name: Check Kopia repository config file
+  ansible.builtin.stat:
+    path: "{{ revopia_config_file }}"
+  register: revopia_repository_config
+
+- name: Check Kopia repository status
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - repository
+      - status
+  register: revopia_repository_status
+  failed_when: false
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"
+  no_log: true
+
+- name: Fail when existing Kopia repository config is not usable
+  ansible.builtin.fail:
+    msg: Existing Kopia repository config is not usable. Check revopia_kopia_password or repair {{ revopia_config_file }} before continuing.
+  when:
+    - revopia_repository_config.stat.exists
+    - revopia_repository_status.rc != 0
+
+- name: Initialize Kopia filesystem repository
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - repository
+      - "{{ revopia_repository_mode }}"
+      - filesystem
+      - "--path={{ revopia_repository_path }}"
+      - --enable-actions
+  register: revopia_repository_init
+  changed_when: true
+  when: revopia_repository_status.rc != 0
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"
+  no_log: true

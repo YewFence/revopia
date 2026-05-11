@@ -28,7 +28,7 @@ func Cleanup(ctx context.Context, api DockerAPI, cfg Config, opts CleanupOptions
 	if strings.TrimSpace(cfg.VisibleRoot) == "" {
 		return withHints(
 			fmt.Errorf("visible root 不能为空"),
-			"用 --visible-root 指定当前进程可见的 volume 根路径，常见值是 /volumes",
+			"用 --visible-root 指定当前进程可见的 volume 根路径，容器常见值是 /volumes，宿主机常见值是 /mnt/revopia",
 		)
 	}
 	if strings.TrimSpace(cfg.HelperImage) == "" {

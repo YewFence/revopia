@@ -1,0 +1,16 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart revopia bridge mount
+  ansible.builtin.systemd:
+    name: "{{ revopia_bridge_mount_unit }}"
+    state: restarted
+  when: revopia_manage_bridge_mount | bool
+
+- name: Restart Kopia revopia service
+  ansible.builtin.systemd:
+    name: "{{ revopia_service_name }}.service"
+    state: restarted
+  when: revopia_manage_service | bool

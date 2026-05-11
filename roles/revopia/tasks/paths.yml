@@ -1,0 +1,41 @@
+---
+- name: Ensure Revopia backing directory exists
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ revopia_user }}"
+    group: "{{ revopia_group }}"
+    mode: "0755"
+  loop:
+    - "{{ revopia_bridge_backing_dir }}"
+    - "{{ revopia_restore_backing_dir }}"
+  when: revopia_manage_bridge_mount | bool
+
+- name: Ensure Kopia and Revopia directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ revopia_config_dir }}"
+      owner: "{{ revopia_user }}"
+      group: "{{ revopia_group }}"
+      mode: "0750"
+    - path: "{{ revopia_repository_path }}"
+      owner: "{{ revopia_user }}"
+      group: "{{ revopia_group }}"
+      mode: "0750"
+    - path: "{{ revopia_bridge_source }}"
+      owner: "{{ revopia_user }}"
+      group: "{{ revopia_group }}"
+      mode: "0755"
+    - path: "{{ revopia_restore_root }}"
+      owner: "{{ revopia_user }}"
+      group: "{{ revopia_group }}"
+      mode: "0755"
+    - path: "{{ revopia_log_dir }}"
+      owner: "{{ revopia_user }}"
+      group: "{{ revopia_group }}"
+      mode: "0755"

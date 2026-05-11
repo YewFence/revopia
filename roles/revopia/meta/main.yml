@@ -1,0 +1,25 @@
+---
+galaxy_info:
+  author: yewfence
+  description: Deploy Revopia with Kopia on a systemd host
+  license: MIT
+  min_ansible_version: "2.20"
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+        - trixie
+    - name: Fedora
+      versions:
+        - "42"
+        - "43"
+    - name: EL
+      versions:
+        - "9"
+  galaxy_tags:
+    - kopia
+    - docker
+    - backup
+    - systemd
+dependencies: []

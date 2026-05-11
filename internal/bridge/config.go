@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,6 +41,8 @@ const (
 
 var helperCommand = []string{"sleep", "infinity"}
 var emptyCheckCommand = []string{"sh", "-c", "set -eu; test -d /target; if find /target -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then exit 1; fi"}
+var statFile = os.Stat
+var readFile = os.ReadFile
 
 var appVersion = "dev"
 
@@ -94,10 +97,19 @@ type restoreSession struct {
 }
 
 func DefaultConfig() Config {
+	runtime := defaultRuntime()
+	bridgeSource := getenvDefault("REVOPIA_BRIDGE_SOURCE", "/mnt/revopia")
+	visibleRoot := bridgeSource
+	restoreRoot := filepath.Join(bridgeSource, "restore")
+	if runtime == runtimeContainer {
+		visibleRoot = "/volumes"
+		restoreRoot = "/restore"
+	}
+
 	return Config{
-		BridgeSource:       getenvDefault("REVOPIA_BRIDGE_SOURCE", "/mnt/revopia"),
-		VisibleRoot:        getenvDefault("REVOPIA_VISIBLE_ROOT", "/volumes"),
-		RestoreVisibleRoot: getenvDefault("REVOPIA_RESTORE_ROOT", "/restore"),
+		BridgeSource:       bridgeSource,
+		VisibleRoot:        getenvDefault("REVOPIA_VISIBLE_ROOT", visibleRoot),
+		RestoreVisibleRoot: getenvDefault("REVOPIA_RESTORE_ROOT", restoreRoot),
 		HelperImage:        getenvDefault("REVOPIA_HELPER_IMAGE", "alpine"),
 		VerifyTimeout:      defaultVerifyTimeout,
 	}
@@ -105,6 +117,10 @@ func DefaultConfig() Config {
 
 func SetVersion(version string) {
 	appVersion = version
+}
+
+func RunningInContainer() bool {
+	return defaultRuntime() == runtimeContainer
 }
 
 func getenvDefault(key, fallback string) string {
@@ -116,4 +132,42 @@ func getenvDefault(key, fallback string) string {
 
 var getenv = func(key string) string {
 	return strings.TrimSpace(strings.Trim(os.Getenv(key), "\x00"))
+}
+
+type runtimeEnvironment string
+
+const (
+	runtimeHost      runtimeEnvironment = "host"
+	runtimeContainer runtimeEnvironment = "container"
+)
+
+func defaultRuntime() runtimeEnvironment {
+	switch strings.ToLower(getenv("REVOPIA_RUNTIME")) {
+	case string(runtimeHost):
+		return runtimeHost
+	case string(runtimeContainer):
+		return runtimeContainer
+	}
+	if detectedInContainer() {
+		return runtimeContainer
+	}
+	return runtimeHost
+}
+
+func detectedInContainer() bool {
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := statFile(marker); err == nil {
+			return true
+		}
+	}
+
+	content, err := readFile("/proc/1/cgroup")
+	if err != nil {
+		return false
+	}
+	text := strings.ToLower(string(content))
+	return strings.Contains(text, "docker") ||
+		strings.Contains(text, "kubepods") ||
+		strings.Contains(text, "containerd") ||
+		strings.Contains(text, "libpod")
 }

@@ -1,0 +1,12 @@
+[Unit]
+Description=Revopia shared bridge mount
+Before={{ revopia_service_name }}.service
+
+[Mount]
+What={{ revopia_bridge_backing_dir }}
+Where={{ revopia_bridge_source }}
+Type=none
+Options=rbind,rshared,nofail
+
+[Install]
+WantedBy=local-fs.target

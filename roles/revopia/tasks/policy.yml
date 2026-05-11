@@ -1,0 +1,108 @@
+---
+- name: Read Kopia policy as JSON
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - policy
+      - show
+      - --json
+      - "{{ revopia_visible_root }}"
+  register: revopia_policy_json
+  failed_when: false
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"
+
+- name: Store Kopia policy
+  ansible.builtin.set_fact:
+    revopia_policy: "{{ revopia_policy_json.stdout | from_json }}"
+  when: revopia_policy_json.rc == 0
+
+- name: Store empty Kopia policy when unavailable
+  ansible.builtin.set_fact:
+    revopia_policy: {}
+  when: revopia_policy_json.rc != 0
+
+- name: Normalize Kopia policy sections
+  ansible.builtin.set_fact:
+    revopia_policy_before_snapshot_root: "{{ (revopia_policy.actions | default({})).beforeSnapshotRoot | default({}) }}"
+    revopia_policy_after_snapshot_root: "{{ (revopia_policy.actions | default({})).afterSnapshotRoot | default({}) }}"
+    revopia_policy_files: "{{ revopia_policy.files | default({}) }}"
+    revopia_policy_scheduling: "{{ revopia_policy.scheduling | default({}) }}"
+
+- name: Initialize Kopia snapshot interval seconds
+  ansible.builtin.set_fact:
+    revopia_snapshot_interval_seconds: 0
+
+- name: Assert supported Kopia snapshot interval format
+  ansible.builtin.assert:
+    that:
+      - (revopia_snapshot_interval | regex_replace('([0-9]+)(s|m|h)', '') | length) == 0
+    fail_msg: revopia_snapshot_interval must use s, m, or h units, for example 24h or 1h30m
+  when: revopia_snapshot_interval | length > 0
+
+- name: Compute Kopia snapshot interval seconds
+  ansible.builtin.set_fact:
+    revopia_snapshot_interval_seconds: "{{ (revopia_snapshot_interval_seconds | int) + ((item.0 | int) * (revopia_snapshot_interval_unit_seconds[item.1] | int)) }}"
+  loop: "{{ revopia_snapshot_interval | regex_findall('([0-9]+)(s|m|h)') }}"
+  vars:
+    revopia_snapshot_interval_unit_seconds:
+      s: 1
+      m: 60
+      h: 3600
+  when: revopia_snapshot_interval | length > 0
+
+- name: Configure Kopia Revopia actions
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - policy
+      - set
+      - "{{ revopia_visible_root }}"
+      - "--before-snapshot-root-action={{ revopia_bin }} prepare"
+      - "--after-snapshot-root-action={{ revopia_bin }} cleanup"
+      - --one-file-system=false
+  register: revopia_policy_actions
+  changed_when: true
+  when: >
+    revopia_policy_json.rc != 0 or
+    (revopia_policy_before_snapshot_root.path | default('')) != revopia_bin or
+    (revopia_policy_before_snapshot_root.args | default([])) != ['prepare'] or
+    (revopia_policy_after_snapshot_root.path | default('')) != revopia_bin or
+    (revopia_policy_after_snapshot_root.args | default([])) != ['cleanup'] or
+    (revopia_policy_files.oneFileSystem | default(true) | bool)
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"
+
+- name: Configure Kopia snapshot schedule
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_kopia_bin }}"
+      - "--config-file={{ revopia_config_file }}"
+      - policy
+      - set
+      - "{{ revopia_visible_root }}"
+      - "--snapshot-interval={{ revopia_snapshot_interval }}"
+      - "--run-missed={{ revopia_run_missed | bool | ternary('true', 'false') }}"
+  register: revopia_policy_schedule
+  changed_when: true
+  when: >
+    revopia_snapshot_interval | length > 0 and
+    (
+      revopia_policy_json.rc != 0 or
+      (revopia_policy_scheduling.intervalSeconds | default(0) | int) != (revopia_snapshot_interval_seconds | int) or
+      (revopia_policy_scheduling.runMissed | default(false) | bool) != (revopia_run_missed | bool)
+    )
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment:
+    KOPIA_PASSWORD: "{{ revopia_kopia_password }}"
+    KOPIA_CHECK_FOR_UPDATES: "false"

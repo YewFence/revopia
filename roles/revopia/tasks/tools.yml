@@ -1,0 +1,123 @@
+---
+- name: Check Kopia mise changes
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - use
+      - --global
+      - --yes
+      - --dry-run-code
+      - "{{ revopia_kopia_tool_spec }}"
+  register: revopia_kopia_mise_dry_run
+  failed_when: revopia_kopia_mise_dry_run.rc not in [0, 1]
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Install Kopia with mise
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - use
+      - --global
+      - --yes
+      - "{{ revopia_kopia_tool_spec }}"
+  register: revopia_kopia_mise_use
+  changed_when: true
+  when: revopia_kopia_mise_dry_run.rc == 1
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Update Kopia with mise
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - use
+      - --global
+      - --yes
+      - --force
+      - "{{ revopia_kopia_tool_spec }}"
+  register: revopia_kopia_mise_update
+  changed_when: true
+  when: revopia_kopia_mise_dry_run.rc == 0 and (revopia_mise_update_tools | bool)
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Check Revopia mise changes
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - use
+      - --global
+      - --yes
+      - --dry-run-code
+      - "{{ revopia_tool_spec }}"
+  register: revopia_mise_dry_run
+  failed_when: revopia_mise_dry_run.rc not in [0, 1]
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Install Revopia with mise
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - use
+      - --global
+      - --yes
+      - "{{ revopia_tool_spec }}"
+  register: revopia_mise_use
+  changed_when: true
+  when: revopia_mise_dry_run.rc == 1
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Update Revopia with mise
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - use
+      - --global
+      - --yes
+      - --force
+      - "{{ revopia_tool_spec }}"
+  register: revopia_mise_update
+  changed_when: true
+  when: revopia_mise_dry_run.rc == 0 and (revopia_mise_update_tools | bool)
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Resolve Kopia binary path
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - which
+      - "{{ revopia_kopia_bin_name }}"
+  register: revopia_kopia_which
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Resolve Revopia binary path
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - which
+      - "{{ revopia_bin_name }}"
+  register: revopia_which
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Store resolved tool paths
+  ansible.builtin.set_fact:
+    revopia_kopia_bin: "{{ revopia_kopia_which.stdout | trim }}"
+    revopia_bin: "{{ revopia_which.stdout | trim }}"

@@ -1,0 +1,41 @@
+---
+- name: Check mise binary
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - --version
+  register: revopia_mise_check
+  failed_when: false
+  changed_when: false
+
+- name: Determine if mise installation is needed
+  ansible.builtin.set_fact:
+    revopia_mise_needs_install: "{{ revopia_mise_check.rc != 0 or (revopia_mise_update | bool) }}"
+
+- name: Ensure mise install directory exists
+  ansible.builtin.file:
+    path: "{{ revopia_mise_bin | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: revopia_mise_needs_install | bool
+
+- name: Download official mise install script
+  ansible.builtin.get_url:
+    url: "{{ revopia_mise_install_url }}"
+    dest: "{{ revopia_mise_install_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+    force: true
+  when: revopia_mise_needs_install | bool
+
+- name: Install mise with official install script
+  ansible.builtin.command:
+    argv:
+      - sh
+      - "{{ revopia_mise_install_script_path }}"
+  environment: "{{ revopia_mise_install_environment | combine((revopia_mise_version | length > 0) | ternary({'MISE_VERSION': revopia_mise_version}, {})) }}"
+  changed_when: true
+  when: revopia_mise_needs_install | bool

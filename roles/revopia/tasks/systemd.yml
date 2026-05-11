@@ -1,0 +1,30 @@
+---
+- name: Install Kopia Revopia environment file
+  ansible.builtin.template:
+    src: server.env.j2
+    dest: "{{ revopia_env_file }}"
+    owner: root
+    group: "{{ revopia_group }}"
+    mode: "0640"
+  notify: Restart Kopia revopia service
+  no_log: true
+
+- name: Install Kopia Revopia service
+  ansible.builtin.template:
+    src: kopia-revopia.service.j2
+    dest: "/etc/systemd/system/{{ revopia_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart Kopia revopia service
+
+- name: Flush Kopia Revopia service handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable Kopia Revopia service
+  ansible.builtin.systemd:
+    name: "{{ revopia_service_name }}.service"
+    enabled: true
+    state: started

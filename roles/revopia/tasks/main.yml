@@ -1,0 +1,98 @@
+---
+- name: Assert supported repository mode
+  ansible.builtin.assert:
+    that:
+      - revopia_repository_mode in ['create', 'connect', 'skip']
+    fail_msg: revopia_repository_mode must be create, connect, or skip
+
+- name: Assert required secrets
+  ansible.builtin.assert:
+    that:
+      - revopia_kopia_password | length > 0
+      - revopia_server_password | length > 0
+    fail_msg: Set revopia_kopia_password and revopia_server_password before enabling the service
+  no_log: true
+  when: revopia_manage_service | bool
+
+- name: Assert supported architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture in revopia_arch_map
+    fail_msg: "Unsupported architecture for revopia release asset: {{ ansible_architecture }}"
+
+- name: Build mise tool specs
+  ansible.builtin.set_fact:
+    revopia_artifact_arch: "{{ revopia_arch_map[ansible_architecture] }}"
+    revopia_kopia_tool_spec: "{{ revopia_kopia_tool }}@{{ revopia_kopia_version }}"
+
+- name: Build Revopia mise tool spec
+  ansible.builtin.set_fact:
+    revopia_tool_spec: "{{ revopia_tool }}[asset_pattern={{ revopia_asset_pattern }},bin={{ revopia_bin_name }}]@{{ revopia_version }}"
+
+- name: Check systemd availability
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --version
+  changed_when: false
+
+- name: Check Docker group availability
+  ansible.builtin.command:
+    argv:
+      - getent
+      - group
+      - "{{ revopia_docker_group }}"
+  changed_when: false
+
+- name: Ensure Kopia group exists
+  ansible.builtin.group:
+    name: "{{ revopia_group }}"
+    system: true
+    state: present
+
+- name: Ensure Kopia user exists
+  ansible.builtin.user:
+    name: "{{ revopia_user }}"
+    group: "{{ revopia_group }}"
+    groups: "{{ revopia_docker_group }}"
+    append: true
+    home: "{{ revopia_user_home }}"
+    create_home: true
+    shell: "{{ revopia_user_shell }}"
+    system: true
+    state: present
+
+- name: Include mise installation tasks
+  ansible.builtin.include_tasks: mise.yml
+  when: revopia_manage_mise | bool
+
+- name: Check mise availability
+  ansible.builtin.command:
+    argv:
+      - "{{ revopia_mise_bin }}"
+      - --version
+  changed_when: false
+  become: true
+  become_user: "{{ revopia_user }}"
+  environment: "{{ revopia_mise_environment }}"
+
+- name: Include directory tasks
+  ansible.builtin.include_tasks: paths.yml
+
+- name: Include mise tool tasks
+  ansible.builtin.include_tasks: tools.yml
+
+- name: Include bridge mount tasks
+  ansible.builtin.include_tasks: mount.yml
+
+- name: Include repository tasks
+  ansible.builtin.include_tasks: repository.yml
+  when: revopia_repository_mode != 'skip'
+
+- name: Include policy tasks
+  ansible.builtin.include_tasks: policy.yml
+  when: revopia_manage_policy | bool
+
+- name: Include systemd service tasks
+  ansible.builtin.include_tasks: systemd.yml
+  when: revopia_manage_service | bool
