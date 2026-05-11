@@ -68,6 +68,37 @@ run = [
 description = "运行 CLI"
 run = "go run ."
 
+[tasks.'action:update']
+description = "交互式更新 GitHub Action 版本并默认固定为提交哈希"
+run = "actions-up"
+
+[tasks.'action:update:all']
+description = "自动更新全部 GitHub Action 版本并默认固定为提交哈希"
+run = "actions-up --yes"
+
+[tasks.'docs:install']
+description = "安装文档站依赖"
+dir = "docs"
+run = "pnpm install"
+
+[tasks.'docs:dev']
+description = "启动 VitePress 文档站"
+depends = ["docs:install"]
+dir = "docs"
+run = "pnpm dev"
+
+[tasks.'docs:build']
+description = "构建 VitePress 文档站"
+depends = ["docs:install"]
+dir = "docs"
+run = "pnpm build"
+
+[tasks.'docs:preview']
+description = "预览 VitePress 文档站"
+depends = ["docs:install"]
+dir = "docs"
+run = "pnpm preview"
+
 [shell_alias]
 # Means "Kopia in Docker" and "Kopia on Host"
 kopiad = "docker compose exec -T kopia kopia"
