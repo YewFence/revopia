@@ -54,7 +54,6 @@ revopia_log_file: "{{ revopia_log_dir }}/revopia.log"
 
 revopia_manage_policy: true
 revopia_snapshot_interval: 24h
-revopia_snapshot_interval_seconds: 86400
 revopia_run_missed: true
 
 revopia_manage_service: true

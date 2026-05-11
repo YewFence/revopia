@@ -33,7 +33,7 @@ helper 容器
 
 `cleanup` 会删除本项目管理的备份 helper 容器，并尝试回收传播出来的挂载点。普通卸载失败时会保留现场并给出诊断，只有显式传入 `--dangerously-lazy-umount` 才会使用 lazy unmount。
 
-`restore` 不会直接调用 Kopia。它会准备一个目标 Docker volume，并把它可写暴露到当前 Kopia 进程可见的恢复路径，然后打印推荐的 `kopia snapshot restore` 命令。
+`restore` 不会直接调用 Kopia。它会准备一个目标 Docker volume，并以可写方式将其暴露到当前 Kopia 进程可见的恢复路径，然后打印推荐的 `kopia snapshot restore` 命令。
 
 ## 环境要求
 

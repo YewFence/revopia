@@ -6,7 +6,7 @@ Before={{ revopia_service_name }}.service
 What={{ revopia_bridge_backing_dir }}
 Where={{ revopia_bridge_source }}
 Type=none
-Options=rbind,rshared
+Options=rbind,rshared,nofail
 
 [Install]
 WantedBy=local-fs.target
