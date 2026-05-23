@@ -159,11 +159,12 @@ func restoreTargetVolumeLabels(session restoreSession) map[string]string {
 func ensureVolumeEmpty(ctx context.Context, api DockerAPI, cfg Config, session restoreSession, logger Logger) error {
 	options := emptyCheckContainerCreateOptions(cfg, session)
 	logger.Printf("restore_empty_check_create name=%q image=%q mounts=%q", options.Name, cfg.HelperImage, formatCreateMounts(options.HostConfig.Mounts))
-	created, err := api.ContainerCreate(ctx, options)
+	created, pulled, err := createContainerWithAutoPull(ctx, api, options, logger, "restore_empty_check")
 	if err != nil {
 		logger.Printf("restore_empty_check_create_error target=%q error=%q", session.TargetVolume, err)
 		return restoreEmptyCheckCreateError(cfg, session.TargetVolume, err)
 	}
+	logger.Printf("restore_empty_check_created id=%q name=%q image_pulled=%t", shortID(created.ID), options.Name, pulled)
 	defer func() {
 		if err := removeContainer(ctx, api, created.ID); err != nil {
 			logger.Printf("restore_empty_check_remove_error id=%q error=%q", shortID(created.ID), err)

@@ -66,6 +66,7 @@ services:
       PING: "1"
       VERSION: "1"
       POST: "1"
+      IMAGES: "1"
       CONTAINERS: "1"
       VOLUMES: "1"
     volumes:

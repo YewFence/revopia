@@ -82,7 +82,7 @@ func ensureRestoreHelper(ctx context.Context, api DockerAPI, cfg Config, session
 func createAndStartRestoreHelper(ctx context.Context, api DockerAPI, cfg Config, session restoreSession, logger Logger) error {
 	options := restoreHelperCreateOptions(cfg, session)
 	logger.Printf("restore_helper_create name=%q image=%q mounts=%q labels=%q", options.Name, cfg.HelperImage, formatCreateMounts(options.HostConfig.Mounts), formatLabels(options.Config.Labels))
-	created, err := api.ContainerCreate(ctx, options)
+	created, pulled, err := createContainerWithAutoPull(ctx, api, options, logger, "restore_helper")
 	if err != nil {
 		logger.Printf("restore_helper_create_error name=%q error=%q", options.Name, err)
 		if cerrdefs.IsNotFound(err) {
@@ -93,7 +93,7 @@ func createAndStartRestoreHelper(ctx context.Context, api DockerAPI, cfg Config,
 		}
 		return restoreHelperCreateError(session, err)
 	}
-	logger.Printf("restore_helper_created id=%q name=%q", shortID(created.ID), options.Name)
+	logger.Printf("restore_helper_created id=%q name=%q image_pulled=%t", shortID(created.ID), options.Name, pulled)
 
 	if _, err := api.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
 		logger.Printf("restore_helper_start_error id=%q error=%q", shortID(created.ID), err)

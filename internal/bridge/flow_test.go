@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iter"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/api/types/volume"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -60,6 +62,49 @@ func TestPrepareCreatesHelperAndPrintsSnapshotPath(t *testing.T) {
 	}
 	if len(api.startedContainers) != 1 || api.startedContainers[0] == "" {
 		t.Fatalf("started containers = %v, want created helper start", api.startedContainers)
+	}
+}
+
+func TestPreparePullsMissingHelperImage(t *testing.T) {
+	restoreInspectVisiblePath(t, func(target string) visiblePathStatus {
+		return visiblePathStatus{Path: target, Exists: true, IsDir: true, IsMount: true}
+	})
+
+	createCalls := 0
+	api := &fakeDockerAPI{
+		volumeListResult: dockerclient.VolumeListResult{
+			Items: []volume.Volume{{
+				Name:   "db-data",
+				Labels: map[string]string{labelBackupName: "database"},
+			}},
+		},
+		containerCreateFunc: func(context.Context, dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error) {
+			createCalls++
+			if createCalls == 1 {
+				return dockerclient.ContainerCreateResult{}, cerrdefs.ErrNotFound
+			}
+			return dockerclient.ContainerCreateResult{ID: "helper-1"}, nil
+		},
+	}
+	cfg := Config{
+		BridgeSource:  "/mnt/revopia",
+		VisibleRoot:   "/volumes",
+		HelperImage:   "alpine:latest",
+		VerifyTimeout: 0,
+	}
+
+	if err := Prepare(context.Background(), api, cfg, io.Discard, discardLogger()); err != nil {
+		t.Fatalf("Prepare returned error: %v", err)
+	}
+
+	if createCalls != 2 {
+		t.Fatalf("container create calls = %d, want 2", createCalls)
+	}
+	if len(api.pulledImages) != 1 || api.pulledImages[0] != "alpine:latest" {
+		t.Fatalf("pulled images = %v, want alpine:latest", api.pulledImages)
+	}
+	if len(api.startedContainers) != 1 || api.startedContainers[0] != "helper-1" {
+		t.Fatalf("started containers = %v, want pulled helper start", api.startedContainers)
 	}
 }
 
@@ -400,6 +445,7 @@ type fakeDockerAPI struct {
 	volumeListErr        error
 	volumeInspectFunc    func(context.Context, string, dockerclient.VolumeInspectOptions) (dockerclient.VolumeInspectResult, error)
 	volumeCreateFunc     func(context.Context, dockerclient.VolumeCreateOptions) (dockerclient.VolumeCreateResult, error)
+	imagePullFunc        func(context.Context, string, dockerclient.ImagePullOptions) (dockerclient.ImagePullResponse, error)
 	containerListFunc    func(context.Context, dockerclient.ContainerListOptions) (dockerclient.ContainerListResult, error)
 	containerInspectFunc func(context.Context, string, dockerclient.ContainerInspectOptions) (dockerclient.ContainerInspectResult, error)
 	containerCreateFunc  func(context.Context, dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error)
@@ -408,6 +454,7 @@ type fakeDockerAPI struct {
 	containerLogsFunc    func(context.Context, string, dockerclient.ContainerLogsOptions) (dockerclient.ContainerLogsResult, error)
 	containerRemoveFunc  func(context.Context, string, dockerclient.ContainerRemoveOptions) (dockerclient.ContainerRemoveResult, error)
 	createdVolumes       []dockerclient.VolumeCreateOptions
+	pulledImages         []string
 	createdContainers    []dockerclient.ContainerCreateOptions
 	startedContainers    []string
 	removedContainers    []string
@@ -433,6 +480,14 @@ func (api *fakeDockerAPI) VolumeCreate(ctx context.Context, opts dockerclient.Vo
 		return api.volumeCreateFunc(ctx, opts)
 	}
 	return dockerclient.VolumeCreateResult{Volume: volume.Volume{Name: opts.Name, Labels: opts.Labels}}, nil
+}
+
+func (api *fakeDockerAPI) ImagePull(ctx context.Context, ref string, opts dockerclient.ImagePullOptions) (dockerclient.ImagePullResponse, error) {
+	api.pulledImages = append(api.pulledImages, ref)
+	if api.imagePullFunc != nil {
+		return api.imagePullFunc(ctx, ref, opts)
+	}
+	return fakeImagePullResponse{}, nil
 }
 
 func (api *fakeDockerAPI) ContainerList(ctx context.Context, opts dockerclient.ContainerListOptions) (dockerclient.ContainerListResult, error) {
@@ -493,4 +548,25 @@ func (api *fakeDockerAPI) ContainerRemove(ctx context.Context, id string, opts d
 		return api.containerRemoveFunc(ctx, id, opts)
 	}
 	return dockerclient.ContainerRemoveResult{}, nil
+}
+
+type fakeImagePullResponse struct {
+	waitErr  error
+	closeErr error
+}
+
+func (fakeImagePullResponse) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (r fakeImagePullResponse) Close() error {
+	return r.closeErr
+}
+
+func (fakeImagePullResponse) JSONMessages(context.Context) iter.Seq2[jsonstream.Message, error] {
+	return func(yield func(jsonstream.Message, error) bool) {}
+}
+
+func (r fakeImagePullResponse) Wait(context.Context) error {
+	return r.waitErr
 }

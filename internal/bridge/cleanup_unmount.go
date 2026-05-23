@@ -142,17 +142,17 @@ func runCleanupUnmountContainer(ctx context.Context, api DockerAPI, cfg Config, 
 		strings.Join(options.HostConfig.SecurityOpt, ","),
 	)
 
-	created, err := api.ContainerCreate(ctx, options)
+	created, _, err := createContainerWithAutoPull(ctx, api, options, logger, spec.LogPrefix)
 	if err != nil && (cerrdefs.IsAlreadyExists(err) || cerrdefs.IsConflict(err)) {
 		logger.Printf("%s_container_conflict_remove name=%q error=%q", spec.LogPrefix, options.Name, err)
 		if removeErr := removeContainer(ctx, api, options.Name); removeErr != nil {
 			return "", fmt.Errorf("清理旧 cleanup 容器 %q 失败: %w", options.Name, removeErr)
 		}
-		created, err = api.ContainerCreate(ctx, options)
+		created, _, err = createContainerWithAutoPull(ctx, api, options, logger, spec.LogPrefix)
 	}
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
-			return "", fmt.Errorf("cleanup 镜像 %q 不存在，请先拉取这个镜像: %w", cfg.HelperImage, err)
+			return "", fmt.Errorf("cleanup 镜像 %q 不存在，自动拉取后仍无法创建容器: %w", cfg.HelperImage, err)
 		}
 		return "", fmt.Errorf("创建 cleanup 容器失败: %w", err)
 	}

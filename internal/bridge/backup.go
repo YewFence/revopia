@@ -193,18 +193,18 @@ func ensureHelper(ctx context.Context, api DockerAPI, cfg Config, spec volumeSpe
 func createAndStartHelper(ctx context.Context, api DockerAPI, cfg Config, spec volumeSpec, logger Logger) error {
 	options := helperCreateOptions(cfg, spec)
 	logger.Printf("helper_create name=%q image=%q mounts=%q labels=%q", options.Name, cfg.HelperImage, formatCreateMounts(options.HostConfig.Mounts), formatLabels(options.Config.Labels))
-	created, err := api.ContainerCreate(ctx, options)
+	created, pulled, err := createContainerWithAutoPull(ctx, api, options, logger, "helper")
 	if err != nil {
 		logger.Printf("helper_create_error name=%q error=%q", options.Name, err)
 		if cerrdefs.IsNotFound(err) {
-			return fmt.Errorf("helper 镜像 %q 不存在，请先拉取这个镜像: %w", cfg.HelperImage, err)
+			return fmt.Errorf("helper 镜像 %q 不存在，自动拉取后仍无法创建容器: %w", cfg.HelperImage, err)
 		}
 		if cerrdefs.IsAlreadyExists(err) || cerrdefs.IsConflict(err) {
 			return fmt.Errorf("helper 容器名称 %q 已被占用: %w", options.Name, err)
 		}
 		return err
 	}
-	logger.Printf("helper_created id=%q name=%q", shortID(created.ID), options.Name)
+	logger.Printf("helper_created id=%q name=%q image_pulled=%t", shortID(created.ID), options.Name, pulled)
 
 	if _, err := api.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
 		logger.Printf("helper_start_error id=%q error=%q", shortID(created.ID), err)
